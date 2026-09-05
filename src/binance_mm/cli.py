@@ -233,7 +233,7 @@ class Agent:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Binance USD-M perpetual liquidity agent")
-    p.add_argument("--environment", choices=["paper", "demo", "live"], default="paper")
+    p.add_argument("--environment", choices=["paper", "demo", "live"], default="live")
     p.add_argument("--strategy", choices=["normal", "volatile"], default="normal")
     p.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
     p.add_argument("--min-volume", type=Decimal, default=Decimal(10000000))

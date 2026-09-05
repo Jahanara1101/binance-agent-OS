@@ -2,13 +2,13 @@
 
 A terminal-first Binance USD-M perpetual liquidity agent. It scans every perpetual market, filters by quote asset and 24-hour quote volume, and posts two-sided maker quotes only when the visible spread is at least the configured threshold.
 
-Warning: market making can lose money through adverse selection, taker exits, fees, funding, API latency, and liquidation. Paper mode is the default. Demo mode uses separate Binance Futures Demo credentials. Live mode is locked behind an explicit flag.
+Warning: market making can lose money through adverse selection, fees, funding, API latency, and liquidation. Live mode is the default, with an explicit `--yes-live` acknowledgement required before orders can run.
 
 ## Strategy
 
 Defaults:
 
-- Environment: `paper`
+- Environment: `live`
 - Quote asset: `USDT` (`USDC` supported)
 - Minimum 24-hour quote volume: `10,000,000`
 - Entry spread: `0.02%` (`0.0002` as a fraction)
@@ -40,31 +40,27 @@ Requires Python 3.11+ and `uv`.
     cd binance-agent-market-maker
     uv sync --extra dev
 
-## Commands
+## Live commands
 
-Paper mode with live Binance market data and simulated orders:
+Default live USDT mode:
 
-    uv run binance-mm
+    uv run binance-mm --yes-live
 
-Normal USDT mode explicitly:
+Normal live USDT mode explicitly:
 
-    uv run binance-mm --environment paper --strategy normal --quote USDT
+    uv run binance-mm --environment live --yes-live --strategy normal --quote USDT
 
 USDC perpetuals:
 
-    uv run binance-mm --environment paper --strategy normal --quote USDC
+    uv run binance-mm --environment live --yes-live --strategy normal --quote USDC
 
 Volatile-only mode:
 
-    uv run binance-mm --environment paper --strategy volatile --quote USDT
+    uv run binance-mm --environment live --yes-live --strategy volatile --quote USDT
 
 Change spread, volume floor, refresh time, allocation, leverage, or cap:
 
     uv run binance-mm --min-spread 0.0003 --min-volume 20000000 --refresh 3 --margin-fraction 0.01 --leverage 2 --max-orders 30
-
-Use a different virtual equity in paper mode:
-
-    uv run binance-mm --paper-equity 25000
 
 The terminal dashboard separates order/cancel activity from fills and shows the environment, strategy, quote asset, eligible market count, open-order count, and error totals.
 
@@ -108,6 +104,8 @@ Live credentials require Futures trading permission. Disable withdrawals on the 
     uv run binance-mm --environment live --yes-live --strategy normal --quote USDT
 
 Without `--yes-live`, live mode exits immediately.
+
+<sub>Paper mode: `uv run binance-mm --environment paper`. Optional virtual equity: `--paper-equity 25000`.</sub>
 
 ## Verification
 
