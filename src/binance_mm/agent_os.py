@@ -57,6 +57,14 @@ class AgentOSExecutor:
             raise TypeError(f"Unexpected Agent OS cancel response: {payload!r}")
         return payload
 
+    def query_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        payload = parse_mcp_payload(
+            self.call_mcp("futures_usds.queryOrder", {"symbol": symbol, "orderId": order_id})
+        )
+        if not isinstance(payload, dict):
+            raise TypeError(f"Unexpected Agent OS query response: {payload!r}")
+        return payload
+
     def open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
         arguments = {"symbol": symbol} if symbol else {}
         payload = parse_mcp_payload(self.call_mcp("futures_usds.currentAllOpenOrders", arguments))

@@ -15,6 +15,8 @@ class FakeMCP:
             return {"result": {"orderId": 321, "status": "NEW"}}
         if tool == "futures_usds.cancelOrder":
             return {"result": {"orderId": 321, "status": "CANCELED"}}
+        if tool == "futures_usds.queryOrder":
+            return {"result": {"orderId": 321, "status": "NEW"}}
         return {"result": []}
 
 
@@ -40,6 +42,13 @@ def test_cancel_uses_agent_os_cancel_tool():
     result = executor.cancel("BTCUSDT", 321)
     assert result["status"] == "CANCELED"
     assert mcp.calls[0] == ("futures_usds.cancelOrder", {"symbol": "BTCUSDT", "orderId": 321})
+
+
+def test_query_order_uses_agent_os_query_tool():
+    mcp = FakeMCP()
+    executor = AgentOSExecutor(mcp.call)
+    executor.query_order("BTCUSDT", 321)
+    assert mcp.calls[0] == ("futures_usds.queryOrder", {"symbol": "BTCUSDT", "orderId": 321})
 
 
 def test_nested_mcp_text_result_is_normalized():

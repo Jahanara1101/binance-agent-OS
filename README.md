@@ -30,6 +30,7 @@ Authenticated tools:
 - `futures_usds.accountInformationV3`
 - `futures_usds.positionInformationV2`
 - `futures_usds.currentAllOpenOrders`
+- `futures_usds.queryOrder`
 - `futures_usds.changeInitialLeverage`
 - `futures_usds.newOrder`
 - `futures_usds.cancelOrder`
