@@ -12,8 +12,9 @@ from rich.live import Live
 from rich.table import Table
 
 from .binance import BinanceClient, parse_books, parse_markets
-from .models import Order, Position
+from .models import Order
 from .paper import PaperBroker
+from .state import Fill, InventoryBook
 from .strategy import bollinger_bandwidth, is_volatile, select_markets, size_quotes
 
 
@@ -36,7 +37,7 @@ class Agent:
         self.client = BinanceClient(args.environment, os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
         self.paper = PaperBroker(Decimal(str(args.paper_equity)))
         self.active: dict[int, Order] = {}
-        self.positions: dict[str, Position] = {}
+        self.inventory = InventoryBook()
         self.market_count = 0
         self.eligible_count = 0
         self.last_scan = 0.0
@@ -105,6 +106,7 @@ class Agent:
                     self.paper.cancel(order_id)
                 else:
                     await self.client.cancel_order(order.symbol, order_id)
+                self.inventory.forget(order_id)
                 self.stats.cancelled += 1
                 self.stats.events.append(f"CANCEL {order.symbol} {order.side.value} #{order_id}")
             except (RuntimeError, ValueError, OSError) as exc:
@@ -131,6 +133,7 @@ class Agent:
                     )
                     order_id = int(result["orderId"])
                 self.active[order_id] = order
+                self.inventory.track(order_id, order)
                 self.stats.placed += 1
                 tag = "EXIT" if order.reduce_only else "QUOTE"
                 self.stats.events.append(
@@ -155,10 +158,31 @@ class Agent:
                                 f"{fill.symbol} {fill.side.value} {fill.quantity}@{fill.price} #{fill.order_id}"
                             )
                             self.active.pop(fill.order_id, None)
-                            self.positions[fill.symbol] = Position(fill.symbol, fill.quantity, fill.side)
+                            sibling_ids = self.inventory.apply_fill(
+                                Fill(fill.order_id, fill.symbol, fill.side, fill.quantity, fill.price)
+                            )
+                            for sibling_id in sibling_ids:
+                                sibling = self.active.get(sibling_id)
+                                if sibling:
+                                    self.paper.cancel(sibling_id)
+                                    self.active.pop(sibling_id, None)
+                                    self.inventory.forget(sibling_id)
+                                    self.stats.cancelled += 1
+                                    self.stats.events.append(
+                                        f"SIBLING_CANCEL {sibling.symbol} {sibling.side.value} #{sibling_id}"
+                                    )
                     await self.cancel_all()
                     available = max(0, self.args.max_orders - len(self.active))
-                    candidates = [m for m in self.markets if m.symbol not in self.positions]
+                    exits = [
+                        exit_order
+                        for market in self.markets
+                        if market.symbol in books
+                        and (exit_order := self.inventory.exit_order(market, books[market.symbol])) is not None
+                    ]
+                    await self.place_orders(exits[:available])
+                    available = max(0, self.args.max_orders - len(self.active))
+                    exposed = {market.symbol for market in self.markets if self.inventory.position(market.symbol)}
+                    candidates = [m for m in self.markets if m.symbol not in exposed]
                     spread_ok = [m for m in candidates if m.symbol in books and books[m.symbol].spread_fraction >= Decimal(str(self.args.min_spread))]
                     orders = size_quotes(
                         spread_ok,
