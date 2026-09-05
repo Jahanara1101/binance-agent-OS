@@ -1,131 +1,114 @@
-# Binance Agent OS
+# Binance Agent OS Liquidity Agent
 
-A terminal-first Binance USD-M perpetual liquidity agent. It scans every perpetual market, filters by quote asset and 24-hour quote volume, and posts two-sided maker quotes only when the visible spread is at least the configured threshold.
+A Binance Agent OS Track A project: an AI-assisted USD-M perpetual liquidity workflow using Binance Agent OS OAuth MCP for every authenticated account, order, leverage, position, and cancellation action.
 
-Warning: market making can lose money through adverse selection, fees, funding, API latency, and liquidation. Live mode is the default, with an explicit `--yes-live` acknowledgement required before orders can run.
+No Binance API key or secret is accepted by this project. Hermes stores the Binance OAuth authorization and calls the official Binance MCP server.
 
-## Strategy
+## What it does
 
-Defaults:
+- Scans all Binance USD-M perpetual markets using public market data
+- Defaults to USDT; USDC is selectable
+- Skips markets below 10,000,000 quote-asset volume over 24 hours
+- Detects entry opportunities when top-of-book spread is at least 0.02%
+- Supports normal and volatile-only selection
+- Volatile mode: closed 5-minute candles, BB(20,2) bandwidth above its rolling 80th percentile
+- Limits a proposed batch to 30 open orders and 1% total margin at 2x leverage
+- Displays scan, proposed order, cancellation, and fill state in the terminal
+- Routes authenticated execution exclusively through Binance Agent OS MCP tools
 
-- Environment: `live`
-- Quote asset: `USDT` (`USDC` supported)
-- Minimum 24-hour quote volume: `10,000,000`
-- Entry spread: `0.02%` (`0.0002` as a fraction)
-- Quote lifetime: `3 seconds`
-- Maximum open orders: `30`
-- Total margin allocation: `1%` of equity across all entry orders
-- Leverage: `2x`
-- Order type: post-only limit (`GTX`) in demo/live
+## Architecture
 
-Modes:
+    Public Binance market data -> scanner and strategy -> proposed action
+                                                   |
+                                                   v
+    Hermes plugin -> Binance Agent OS OAuth MCP -> Binance Agentic sub-account
 
-- `normal`: quote every eligible market whose spread passes the gate.
-- `volatile`: additionally require 5-minute Bollinger Band Width, BB(20,2), to be above the rolling 80th percentile of the latest 200 bandwidth observations.
+Public endpoints are used only for exchange metadata, 24-hour volume, books, and candles because the current Agent OS USD-M tool set does not expose all-market 24-hour quote volume or bookTicker. No authenticated REST signing exists in this repository.
 
-Fill behavior:
+Authenticated tools:
 
-1. Detect a fill.
-2. Cancel the sibling quote.
-3. Stop creating fresh exposure on that symbol.
-4. Place an opposite, reduce-only maker exit.
-5. Refresh that exit every 3 seconds, even if spread is below 0.02%.
-6. Resume normal quoting only after inventory is flat.
+- `futures_usds.accountInformationV3`
+- `futures_usds.positionInformationV2`
+- `futures_usds.currentAllOpenOrders`
+- `futures_usds.changeInitialLeverage`
+- `futures_usds.newOrder`
+- `futures_usds.cancelOrder`
 
-## Install
+## Binance Agent OS OAuth setup
 
-Requires Python 3.11+ and `uv`.
+    hermes mcp add binance --url https://agent.binance.com/mcp/agentic --auth oauth
+    hermes mcp test binance
+
+Binance opens its own authorization page. The user logs in and selects permissions there; neither Hermes nor this repository receives the Binance password, 2FA code, API key, or secret.
+
+## Install the Hermes plugin
+
+Clone the repository:
 
     git clone https://github.com/ItzJulkar/binance-agent-OS.git
     cd binance-agent-OS
     uv sync --extra dev
 
-## Live commands
+Copy the complete `hermes-plugin` directory to the active Hermes profile's plugins directory, enable it, then grant only this plugin access to the configured `binance` MCP server:
 
-Default live USDT mode:
+    cp -r hermes-plugin "$LOCALAPPDATA/hermes/plugins/binance-agent-os"
+    hermes plugins enable binance-agent-os
+    hermes config set plugins.entries.binance-agent-os.mcp_allowlist '["binance"]'
 
-    uv run binance-mm --yes-live
+Restart Hermes after plugin installation. The plugin exposes:
 
-Normal live USDT mode explicitly:
+    hermes binance-agent-os status
+    hermes binance-agent-os account
+    hermes binance-agent-os positions
+    hermes binance-agent-os orders
+    hermes binance-agent-os orders --symbol BTCUSDT
 
-    uv run binance-mm --environment live --yes-live --strategy normal --quote USDT
+## Confirmation boundary
 
-USDC perpetuals:
+Binance Agent OS requires user confirmation for write actions. Therefore a truthful Agent OS workflow cannot silently place and cancel 30 orders every three seconds unattended.
 
-    uv run binance-mm --environment live --yes-live --strategy normal --quote USDC
+The scanner refreshes opportunities every three seconds. The Agent OS execution layer presents authenticated order/cancel operations through Binance's confirmation flow. This preserves the Agent OS security model and Track A provenance instead of bypassing it with direct API credentials.
 
-Volatile-only mode:
+## Strategy defaults
 
-    uv run binance-mm --environment live --yes-live --strategy volatile --quote USDT
+- Quote asset: USDT
+- Minimum 24-hour quote volume: 10,000,000
+- Entry spread: 0.02%
+- Refresh interval: 3 seconds
+- Maximum proposed open orders: 30
+- Total proposed margin: 1% of equity
+- Leverage: 2x
+- Maker order: LIMIT + GTX
 
-Change spread, volume floor, refresh time, allocation, leverage, or cap:
+Fill policy:
 
-    uv run binance-mm --min-spread 0.0003 --min-volume 20000000 --refresh 3 --margin-fraction 0.01 --leverage 2 --max-orders 30
+1. Detect inventory through Agent OS account/order queries.
+2. Cancel the sibling quote through Agent OS.
+3. Stop proposing fresh exposure for that symbol.
+4. Propose an opposite reduce-only maker exit.
+5. Refresh the exit after three seconds even when spread is below 0.02%.
+6. Resume two-sided quoting only when the Agent OS position query confirms flat inventory.
 
-The terminal dashboard separates order/cancel activity from fills and shows the environment, strategy, quote asset, eligible market count, open-order count, and error totals.
+## Scanner and paper visualization
 
-## Binance Agent OS connection
+The standalone terminal scanner does not authenticate or trade. Paper mode visualizes the strategy against live public books:
 
-Hermes can connect through Binance OAuth without receiving your Binance password or API secret:
+    uv run binance-mm --environment paper
+    uv run binance-mm --environment paper --quote USDC
+    uv run binance-mm --environment paper --strategy volatile
 
-    hermes mcp add binance --url https://agent.binance.com/mcp/agentic --auth oauth
-    hermes mcp test binance
+The default environment is `agent-os`; authenticated commands must run through the Hermes plugin so there is no fallback path that can accidentally use direct keys.
 
-The Agent OS MCP is useful for the hackathon demonstration and permissioned account actions. Binance requires user confirmation for write actions, so it is not appropriate for autonomous 3-second cancel/requote execution. The autonomous demo/live runners below use Binance's official Futures API instead.
+## Tests
 
-## Futures Demo mode
-
-Create Futures Demo credentials from Binance's demo environment. These are separate from your main-account credentials. Never commit them.
-
-Git Bash/macOS/Linux:
-
-    export BINANCE_API_KEY='demo-key'
-    export BINANCE_API_SECRET='demo-secret'
-    uv run binance-mm --environment demo --strategy normal --quote USDT
-
-Windows PowerShell:
-
-    $env:BINANCE_API_KEY='demo-key'
-    $env:BINANCE_API_SECRET='demo-secret'
-    uv run binance-mm --environment demo --strategy normal --quote USDT
-
-Demo REST base URL used by the code:
-
-    https://demo-fapi.binance.com
-
-Start small and verify account mode, precision, leverage, fills, cancellation reconciliation, and API limits before considering live use.
-
-## Live mode
-
-Live credentials require Futures trading permission. Disable withdrawals on the key, restrict IPs, and use a dedicated low-balance account where possible.
-
-    export BINANCE_API_KEY='live-key'
-    export BINANCE_API_SECRET='live-secret'
-    uv run binance-mm --environment live --yes-live --strategy normal --quote USDT
-
-Without `--yes-live`, live mode exits immediately.
-
-<sub>Paper mode: `uv run binance-mm --environment paper`. Optional virtual equity: `--paper-equity 25000`.</sub>
-
-## Verification
-
-    uv run pytest -q
     uv run ruff check .
+    uv run pytest -q
 
-## Current status
-
-- Market discovery, volume/quote filtering, spread gating, BB Width detection, precision-aware sizing, 30-order cap, HTTP signing, paper broker, demo/live REST client, and terminal display are implemented.
-- Paper mode has been exercised against current public Binance Futures market data.
-- Demo/live authenticated execution is code-complete but not account-tested because no Demo API credentials have been supplied.
-- Demo/live now use Binance's user-data WebSocket for partial-fill events, sibling cancellation, duplicate-event protection, listen-key keepalive/reconnect, startup open-order reconciliation, and a One-way Mode safety check.
-- Authenticated demo/live execution still needs account testing with your separate Futures Demo credentials before it can be considered validated.
+Tests enforce that authenticated order and cancellation calls map to Agent OS MCP tools and that no API secret/HMAC order-signing path exists.
 
 ## Official references
 
-- Binance USD-M Futures general information: https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info
-- Exchange information: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information
-- All book tickers: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Symbol-Order-Book-Ticker
-- 24-hour ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/24hr-Ticker-Price-Change-Statistics
-- New order: https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api
 - Binance Agent OS MCP: https://developers.binance.com/en/docs/agent-native/mcp-server/agentic
-- Market-making inventory risk background: https://hummingbot.org/blog/guide-to-the-avellaneda--stoikov-strategy/
+- Binance USD-M public market information: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information
+- Binance all-market book ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Symbol-Order-Book-Ticker
+- Binance 24-hour ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/24hr-Ticker-Price-Change-Statistics

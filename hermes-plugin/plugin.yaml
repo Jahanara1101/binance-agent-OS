@@ -1,0 +1,4 @@
+name: binance-agent-os
+version: 0.1.0
+description: "Binance Agent OS OAuth MCP-backed perpetual liquidity agent commands."
+author: "ItzJulkar"

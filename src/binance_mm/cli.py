@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import os
 import signal
 import time
 from collections import deque
@@ -12,12 +11,10 @@ from rich.live import Live
 from rich.table import Table
 
 from .binance import BinanceClient, parse_books, parse_markets
-from .execution import ExecutionCoordinator
 from .models import Order
 from .paper import PaperBroker
 from .state import Fill, InventoryBook
 from .strategy import bollinger_bandwidth, is_volatile, select_markets, size_quotes
-from .stream import UserDataStream
 
 
 @dataclass
@@ -36,31 +33,16 @@ class Agent:
         self.args = args
         self.stats = Stats()
         self.running = True
-        self.client = BinanceClient(args.environment, os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
+        self.client = BinanceClient()
         self.paper = PaperBroker(Decimal(str(args.paper_equity)))
         self.active: dict[int, Order] = {}
         self.inventory = InventoryBook()
-        self.coordinator = ExecutionCoordinator(self.client, self.inventory)
+
         self.market_count = 0
         self.eligible_count = 0
         self.last_scan = 0.0
         self.markets = []
-        self.stream: UserDataStream | None = None
-        self.stream_task: asyncio.Task | None = None
 
-    async def on_user_event(self, event: dict) -> None:
-        result = await self.coordinator.handle_order_update(event)
-        if result.duplicate:
-            return
-        if result.exit_required:
-            order = event.get("o", {})
-            self.stats.fills += 1
-            self.stats.fill_events.append(
-                f"{order.get('s')} {order.get('S')} {order.get('l')}@{order.get('L')} #{order.get('i')}"
-            )
-            for order_id in result.cancelled_siblings:
-                self.active.pop(order_id, None)
-                self.stats.cancelled += 1
 
     def stop(self, *_: object) -> None:
         self.running = False
@@ -124,7 +106,7 @@ class Agent:
                 if self.args.environment == "paper":
                     self.paper.cancel(order_id)
                 else:
-                    await self.client.cancel_order(order.symbol, order_id)
+                    raise RuntimeError("Authenticated cancels must run through the Binance Agent OS plugin")
                 self.inventory.forget(order_id)
                 self.stats.cancelled += 1
                 self.stats.events.append(f"CANCEL {order.symbol} {order.side.value} #{order_id}")
@@ -140,17 +122,7 @@ class Agent:
                 if self.args.environment == "paper":
                     order_id = self.paper.place(order)
                 else:
-                    result = await self.client.new_order(
-                        symbol=order.symbol,
-                        side=order.side.value,
-                        type="LIMIT",
-                        timeInForce="GTX",
-                        quantity=str(order.quantity),
-                        price=str(order.price),
-                        reduceOnly="true" if order.reduce_only else "false",
-                        newClientOrderId=f"hmm-{int(time.time()*1000)}-{self.stats.placed}",
-                    )
-                    order_id = int(result["orderId"])
+                    raise RuntimeError("Authenticated orders must run through the Binance Agent OS plugin")
                 self.active[order_id] = order
                 self.inventory.track(order_id, order)
                 self.stats.placed += 1
@@ -163,14 +135,11 @@ class Agent:
                 self.stats.events.append(f"PLACE_ERR {order.symbol}: {exc}")
 
     async def run(self) -> None:
-        if self.args.environment != "paper":
-            await self.client.sync_time()
-            if (await self.client.position_mode()).get("dualSidePosition"):
-                raise RuntimeError("Hedge Mode is unsupported; switch Binance Futures to One-way Mode")
-            exchange_orders = await self.client.open_orders()
-            await self.coordinator.reconcile(exchange_orders)
-            self.stream = UserDataStream(self.client, self.args.environment, self.on_user_event)
-            self.stream_task = asyncio.create_task(self.stream.run())
+        if self.args.environment == "agent-os":
+            raise RuntimeError(
+                "Start authenticated execution through Hermes: hermes binance-agent-os status. "
+                "The standalone scanner cannot bypass Binance Agent OS OAuth confirmations."
+            )
         with Live(self.render(), console=Console(), refresh_per_second=4) as live:
             try:
                 while self.running:
@@ -222,18 +191,13 @@ class Agent:
                     live.update(self.render())
                     await asyncio.sleep(max(0.05, self.args.refresh - (time.monotonic() - started)))
             finally:
-                if self.stream:
-                    await self.stream.stop()
-                if self.stream_task:
-                    self.stream_task.cancel()
-                    await asyncio.gather(self.stream_task, return_exceptions=True)
                 await self.cancel_all()
                 await self.client.close()
 
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Binance USD-M perpetual liquidity agent")
-    p.add_argument("--environment", choices=["paper", "demo", "live"], default="live")
+    p.add_argument("--environment", choices=["agent-os", "paper"], default="agent-os")
     p.add_argument("--strategy", choices=["normal", "volatile"], default="normal")
     p.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
     p.add_argument("--min-volume", type=Decimal, default=Decimal(10000000))
@@ -243,14 +207,13 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--margin-fraction", type=Decimal, default=Decimal("0.01"))
     p.add_argument("--leverage", type=int, default=2)
     p.add_argument("--paper-equity", type=Decimal, default=Decimal(10000))
-    p.add_argument("--yes-live", action="store_true")
+
     return p
 
 
 def main() -> None:
     args = parser().parse_args()
-    if args.environment == "live" and not args.yes_live:
-        raise SystemExit("Live mode requires --yes-live")
+
     agent = Agent(args)
     signal.signal(signal.SIGINT, agent.stop)
     signal.signal(signal.SIGTERM, agent.stop)

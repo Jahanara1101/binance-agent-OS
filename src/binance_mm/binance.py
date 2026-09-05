@@ -1,141 +1,49 @@
-import hashlib
-import hmac
-import time
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
-from urllib.parse import urlencode
 
 import httpx
 
 from .models import Book, Market
 
-LIVE_REST = "https://fapi.binance.com"
-DEMO_REST = "https://demo-fapi.binance.com"
+PUBLIC_REST = "https://fapi.binance.com"
 
 
-class BinanceAPIError(RuntimeError):
+class BinanceMarketDataError(RuntimeError):
     pass
 
 
-@dataclass
-class BinanceClient:
-    environment: str = "paper"
-    api_key: str | None = None
-    api_secret: str | None = None
-    timeout: float = 15.0
+class BinanceMarketDataClient:
+    """Public, unauthenticated market-data client. Trading is Agent OS MCP only."""
 
-    def __post_init__(self) -> None:
-        self.base_url = DEMO_REST if self.environment == "demo" else LIVE_REST
-        self.http = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
-        self._time_offset_ms = 0
+    def __init__(self, timeout: float = 15.0) -> None:
+        self.http = httpx.AsyncClient(base_url=PUBLIC_REST, timeout=timeout)
 
     async def close(self) -> None:
         await self.http.aclose()
 
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        params: dict[str, Any] | None = None,
-        signed: bool = False,
-    ) -> Any:
-        values = dict(params or {})
-        headers: dict[str, str] = {}
-        if signed:
-            if not self.api_key or not self.api_secret:
-                raise BinanceAPIError("BINANCE_API_KEY and BINANCE_API_SECRET are required")
-            values.setdefault("timestamp", int(time.time() * 1000) + self._time_offset_ms)
-            values.setdefault("recvWindow", 5000)
-            query = urlencode(values)
-            values["signature"] = hmac.new(
-                self.api_secret.encode(), query.encode(), hashlib.sha256
-            ).hexdigest()
-            headers["X-MBX-APIKEY"] = self.api_key
-        response = await self.http.request(method, path, params=values, headers=headers)
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        response = await self.http.get(path, params=params)
         if response.status_code >= 400:
-            raise BinanceAPIError(f"{response.status_code} {response.text}")
+            raise BinanceMarketDataError(f"{response.status_code} {response.text}")
         return response.json()
 
-    async def sync_time(self) -> None:
-        payload = await self._request("GET", "/fapi/v1/time")
-        self._time_offset_ms = int(payload["serverTime"]) - int(time.time() * 1000)
-
     async def exchange_info(self) -> dict[str, Any]:
-        return await self._request("GET", "/fapi/v1/exchangeInfo")
+        return await self._get("/fapi/v1/exchangeInfo")
 
     async def ticker_24h(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/fapi/v1/ticker/24hr")
+        return await self._get("/fapi/v1/ticker/24hr")
 
     async def book_tickers(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/fapi/v1/ticker/bookTicker")
+        return await self._get("/fapi/v1/ticker/bookTicker")
 
     async def klines(self, symbol: str, interval: str = "5m", limit: int = 220) -> list[list[Any]]:
-        return await self._request(
-            "GET", "/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit}
+        return await self._get(
+            "/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit}
         )
 
-    async def account(self) -> dict[str, Any]:
-        return await self._request("GET", "/fapi/v3/account", signed=True)
 
-    async def open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
-        params = {"symbol": symbol} if symbol else {}
-        return await self._request("GET", "/fapi/v1/openOrders", params, signed=True)
-
-    async def position_risk(self, symbol: str | None = None) -> list[dict[str, Any]]:
-        params = {"symbol": symbol} if symbol else {}
-        return await self._request("GET", "/fapi/v2/positionRisk", params, signed=True)
-
-    async def position_mode(self) -> dict[str, Any]:
-        return await self._request("GET", "/fapi/v1/positionSide/dual", signed=True)
-
-    async def create_listen_key(self) -> str:
-        if not self.api_key:
-            raise BinanceAPIError("BINANCE_API_KEY is required")
-        response = await self.http.post("/fapi/v1/listenKey", headers={"X-MBX-APIKEY": self.api_key})
-        if response.status_code >= 400:
-            raise BinanceAPIError(f"{response.status_code} {response.text}")
-        return str(response.json()["listenKey"])
-
-    async def keepalive_listen_key(self, listen_key: str) -> None:
-        if not self.api_key:
-            raise BinanceAPIError("BINANCE_API_KEY is required")
-        response = await self.http.put(
-            "/fapi/v1/listenKey",
-            params={"listenKey": listen_key},
-            headers={"X-MBX-APIKEY": self.api_key},
-        )
-        if response.status_code >= 400:
-            raise BinanceAPIError(f"{response.status_code} {response.text}")
-
-    async def close_listen_key(self, listen_key: str) -> None:
-        if not self.api_key:
-            raise BinanceAPIError("BINANCE_API_KEY is required")
-        response = await self.http.delete(
-            "/fapi/v1/listenKey",
-            params={"listenKey": listen_key},
-            headers={"X-MBX-APIKEY": self.api_key},
-        )
-        if response.status_code >= 400:
-            raise BinanceAPIError(f"{response.status_code} {response.text}")
-
-    async def set_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
-        return await self._request(
-            "POST", "/fapi/v1/leverage", {"symbol": symbol, "leverage": leverage}, signed=True
-        )
-
-    async def new_order(self, **params: Any) -> dict[str, Any]:
-        return await self._request("POST", "/fapi/v1/order", params, signed=True)
-
-    async def cancel_order(self, symbol: str, order_id: int) -> dict[str, Any]:
-        return await self._request(
-            "DELETE", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}, signed=True
-        )
-
-    async def query_order(self, symbol: str, order_id: int) -> dict[str, Any]:
-        return await self._request(
-            "GET", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}, signed=True
-        )
+# Backward-compatible name for the scanner tests; this class has no account or trading methods.
+BinanceClient = BinanceMarketDataClient
 
 
 def parse_markets(exchange_info: dict[str, Any], tickers: list[dict[str, Any]]) -> list[Market]:
