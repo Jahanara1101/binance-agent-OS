@@ -1,4 +1,4 @@
-# Binance Agent Market Maker
+# Binance Agent OS
 
 A terminal-first Binance USD-M perpetual liquidity agent. It scans every perpetual market, filters by quote asset and 24-hour quote volume, and posts two-sided maker quotes only when the visible spread is at least the configured threshold.
 
@@ -36,8 +36,8 @@ Fill behavior:
 
 Requires Python 3.11+ and `uv`.
 
-    git clone https://github.com/ItzJulkar/binance-agent-market-maker.git
-    cd binance-agent-market-maker
+    git clone https://github.com/ItzJulkar/binance-agent-OS.git
+    cd binance-agent-OS
     uv sync --extra dev
 
 ## Live commands
