@@ -86,6 +86,39 @@ class BinanceClient:
         params = {"symbol": symbol} if symbol else {}
         return await self._request("GET", "/fapi/v2/positionRisk", params, signed=True)
 
+    async def position_mode(self) -> dict[str, Any]:
+        return await self._request("GET", "/fapi/v1/positionSide/dual", signed=True)
+
+    async def create_listen_key(self) -> str:
+        if not self.api_key:
+            raise BinanceAPIError("BINANCE_API_KEY is required")
+        response = await self.http.post("/fapi/v1/listenKey", headers={"X-MBX-APIKEY": self.api_key})
+        if response.status_code >= 400:
+            raise BinanceAPIError(f"{response.status_code} {response.text}")
+        return str(response.json()["listenKey"])
+
+    async def keepalive_listen_key(self, listen_key: str) -> None:
+        if not self.api_key:
+            raise BinanceAPIError("BINANCE_API_KEY is required")
+        response = await self.http.put(
+            "/fapi/v1/listenKey",
+            params={"listenKey": listen_key},
+            headers={"X-MBX-APIKEY": self.api_key},
+        )
+        if response.status_code >= 400:
+            raise BinanceAPIError(f"{response.status_code} {response.text}")
+
+    async def close_listen_key(self, listen_key: str) -> None:
+        if not self.api_key:
+            raise BinanceAPIError("BINANCE_API_KEY is required")
+        response = await self.http.delete(
+            "/fapi/v1/listenKey",
+            params={"listenKey": listen_key},
+            headers={"X-MBX-APIKEY": self.api_key},
+        )
+        if response.status_code >= 400:
+            raise BinanceAPIError(f"{response.status_code} {response.text}")
+
     async def set_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
         return await self._request(
             "POST", "/fapi/v1/leverage", {"symbol": symbol, "leverage": leverage}, signed=True

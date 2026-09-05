@@ -12,10 +12,12 @@ from rich.live import Live
 from rich.table import Table
 
 from .binance import BinanceClient, parse_books, parse_markets
+from .execution import ExecutionCoordinator
 from .models import Order
 from .paper import PaperBroker
 from .state import Fill, InventoryBook
 from .strategy import bollinger_bandwidth, is_volatile, select_markets, size_quotes
+from .stream import UserDataStream
 
 
 @dataclass
@@ -38,10 +40,27 @@ class Agent:
         self.paper = PaperBroker(Decimal(str(args.paper_equity)))
         self.active: dict[int, Order] = {}
         self.inventory = InventoryBook()
+        self.coordinator = ExecutionCoordinator(self.client, self.inventory)
         self.market_count = 0
         self.eligible_count = 0
         self.last_scan = 0.0
         self.markets = []
+        self.stream: UserDataStream | None = None
+        self.stream_task: asyncio.Task | None = None
+
+    async def on_user_event(self, event: dict) -> None:
+        result = await self.coordinator.handle_order_update(event)
+        if result.duplicate:
+            return
+        if result.exit_required:
+            order = event.get("o", {})
+            self.stats.fills += 1
+            self.stats.fill_events.append(
+                f"{order.get('s')} {order.get('S')} {order.get('l')}@{order.get('L')} #{order.get('i')}"
+            )
+            for order_id in result.cancelled_siblings:
+                self.active.pop(order_id, None)
+                self.stats.cancelled += 1
 
     def stop(self, *_: object) -> None:
         self.running = False
@@ -146,6 +165,12 @@ class Agent:
     async def run(self) -> None:
         if self.args.environment != "paper":
             await self.client.sync_time()
+            if (await self.client.position_mode()).get("dualSidePosition"):
+                raise RuntimeError("Hedge Mode is unsupported; switch Binance Futures to One-way Mode")
+            exchange_orders = await self.client.open_orders()
+            await self.coordinator.reconcile(exchange_orders)
+            self.stream = UserDataStream(self.client, self.args.environment, self.on_user_event)
+            self.stream_task = asyncio.create_task(self.stream.run())
         with Live(self.render(), console=Console(), refresh_per_second=4) as live:
             try:
                 while self.running:
@@ -197,6 +222,11 @@ class Agent:
                     live.update(self.render())
                     await asyncio.sleep(max(0.05, self.args.refresh - (time.monotonic() - started)))
             finally:
+                if self.stream:
+                    await self.stream.stop()
+                if self.stream_task:
+                    self.stream_task.cancel()
+                    await asyncio.gather(self.stream_task, return_exceptions=True)
                 await self.cancel_all()
                 await self.client.close()
 

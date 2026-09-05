@@ -119,7 +119,8 @@ Without `--yes-live`, live mode exits immediately.
 - Market discovery, volume/quote filtering, spread gating, BB Width detection, precision-aware sizing, 30-order cap, HTTP signing, paper broker, demo/live REST client, and terminal display are implemented.
 - Paper mode has been exercised against current public Binance Futures market data.
 - Demo/live authenticated execution is code-complete but not account-tested because no Demo API credentials have been supplied.
-- Before real funds, fill/cancel reconciliation should be moved to Binance's user-data WebSocket and tested under partial fills and network faults.
+- Demo/live now use Binance's user-data WebSocket for partial-fill events, sibling cancellation, duplicate-event protection, listen-key keepalive/reconnect, startup open-order reconciliation, and a One-way Mode safety check.
+- Authenticated demo/live execution still needs account testing with your separate Futures Demo credentials before it can be considered validated.
 
 ## Official references
 
