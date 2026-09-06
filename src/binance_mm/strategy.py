@@ -11,7 +11,7 @@ def select_markets(markets: list[Market], quote_asset: str, min_volume: Decimal)
         market
         for market in markets
         if market.quote_asset == quote_asset
-        and market.contract_type == "PERPETUAL"
+        and market.contract_type in {"PERPETUAL", "SPOT"}
         and market.status == "TRADING"
         and market.quote_volume >= min_volume
     ]

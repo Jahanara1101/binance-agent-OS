@@ -1,6 +1,6 @@
 # Binance Agent OS Liquidity Agent
 
-A Binance Agent OS Track A project: an AI-assisted USD-M perpetual liquidity workflow using Binance Agent OS OAuth MCP for every authenticated account, order, leverage, position, and cancellation action.
+A Binance Agent OS Track A project: AI-assisted USD-M perpetual and spot liquidity workflows using Binance Agent OS OAuth MCP for every authenticated account, order, leverage, position, and cancellation action.
 
 No Binance API key or secret is accepted by this project. Hermes stores the Binance OAuth authorization and calls the official Binance MCP server.
 
@@ -15,6 +15,7 @@ No Binance API key or secret is accepted by this project. Hermes stores the Bina
 - Limits a proposed batch to 30 open orders and 1% total margin at 2x leverage
 - Displays scan, proposed order, cancellation, and fill state in the terminal
 - Routes authenticated execution exclusively through Binance Agent OS MCP tools
+- Keeps separate 1% allocation and maximum 30 open orders for Spot and Perp
 
 ## Architecture
 
@@ -63,9 +64,11 @@ Restart Hermes after plugin installation. The plugin exposes:
     hermes binance-agent-os positions
     hermes binance-agent-os orders
     hermes binance-agent-os orders --symbol BTCUSDT
-    hermes binance-agent-os run --cycles 1 --quote USDT --strategy normal
+    hermes binance-agent-os run-perp --cycles 1 --quote USDT --strategy normal
+    hermes binance-agent-os run-spot --cycles 1 --quote USDT --strategy normal
+    hermes binance-agent-os run-both --cycles 1 --quote USDT --strategy normal
 
-Each `run` cycle scans current public books, reads account/order/position state through Agent OS, then submits every authenticated order or cancellation through Binance Agent OS OAuth MCP. Binance may request confirmation for each write. Start with one cycle and a low funded balance.
+Each run cycle scans current public books, reads account/order/position state through Agent OS, then submits every authenticated order or cancellation through Binance Agent OS OAuth MCP. Spot and Perp each enforce their own 30-open-order cap and 1% allocation because their funds are separate. Binance may request confirmation for each write. Start with one cycle and a low funded balance.
 
 ## Confirmation boundary
 

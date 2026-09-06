@@ -90,3 +90,48 @@ class AgentOSExecutor:
         if not isinstance(payload, dict):
             raise TypeError(f"Unexpected Agent OS leverage response: {payload!r}")
         return payload
+
+    def place_spot(self, order: Order, client_order_id: str) -> dict[str, Any]:
+        payload = parse_mcp_payload(
+            self.call_mcp(
+                "spot.newOrder",
+                {
+                    "symbol": order.symbol,
+                    "side": order.side.value,
+                    "type": "LIMIT_MAKER",
+                    "quantity": str(order.quantity),
+                    "price": str(order.price),
+                    "newClientOrderId": client_order_id,
+                },
+            )
+        )
+        if not isinstance(payload, dict):
+            raise TypeError(f"Unexpected Agent OS spot order response: {payload!r}")
+        return payload
+
+    def cancel_spot(self, symbol: str, order_id: int) -> dict[str, Any]:
+        payload = parse_mcp_payload(
+            self.call_mcp("spot.deleteOrder", {"symbol": symbol, "orderId": order_id})
+        )
+        if not isinstance(payload, dict):
+            raise TypeError(f"Unexpected Agent OS spot cancel response: {payload!r}")
+        return payload
+
+    def query_spot_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        payload = parse_mcp_payload(
+            self.call_mcp("spot.getOrder", {"symbol": symbol, "orderId": order_id})
+        )
+        if not isinstance(payload, dict):
+            raise TypeError(f"Unexpected Agent OS spot query response: {payload!r}")
+        return payload
+
+    def spot_account(self) -> dict[str, Any]:
+        payload = parse_mcp_payload(self.call_mcp("spot.getAccount", {}))
+        if not isinstance(payload, dict):
+            raise TypeError(f"Unexpected Agent OS spot account response: {payload!r}")
+        return payload
+
+    def spot_open_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        arguments = {"symbol": symbol} if symbol else {}
+        payload = parse_mcp_payload(self.call_mcp("spot.getOpenOrders", arguments))
+        return payload if isinstance(payload, list) else []

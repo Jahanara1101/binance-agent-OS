@@ -21,14 +21,23 @@ def register(ctx):
 
     from binance_mm.agent_os import AgentOSExecutor
     from binance_mm.agent_os_runner import AgentOSRunner
-    from binance_mm.binance import BinanceMarketDataClient, parse_books, parse_markets
-    from binance_mm.strategy import select_markets
+    from binance_mm.binance import (
+        BinanceMarketDataClient,
+        BinanceSpotMarketDataClient,
+        parse_books,
+        parse_markets,
+    )
+    from binance_mm.spot_runner import SpotRunner
+    from binance_mm.strategy import bollinger_bandwidth, is_volatile, select_markets
 
     def call(tool, arguments):
         return ctx.call_mcp("binance", tool, arguments, timeout=120)
 
     def setup(subparser):
-        subparser.add_argument("action", choices=["status", "account", "positions", "orders", "run"])
+        subparser.add_argument(
+            "action",
+            choices=["status", "account", "positions", "orders", "run-perp", "run-spot", "run-both"],
+        )
         subparser.add_argument("--symbol")
         subparser.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
         subparser.add_argument("--strategy", choices=["normal", "volatile"], default="normal")
@@ -38,44 +47,65 @@ def register(ctx):
         subparser.add_argument("--refresh", type=int, default=3)
         subparser.add_argument("--cycles", type=int, default=1)
 
-    async def run_cycles(args, executor):
-        market_data = BinanceMarketDataClient()
-        runner = AgentOSRunner(
-            executor,
-            refresh_seconds=args.refresh,
-            max_orders=args.max_orders,
-            min_spread=args.min_spread,
+    async def market_snapshot(client, args, kind):
+        info = await client.exchange_info()
+        tickers = await client.ticker_24h()
+        books = parse_books(await client.book_tickers())
+        markets = select_markets(parse_markets(info, tickers), args.quote, args.min_volume)
+        expected_type = "PERPETUAL" if kind == "perp" else "SPOT"
+        markets = [m for m in markets if m.contract_type == expected_type]
+        if args.strategy == "volatile":
+            selected = []
+            for market in markets:
+                raw = await client.klines(market.symbol, "5m", 220)
+                widths = bollinger_bandwidth([Decimal(str(row[4])) for row in raw], 20, Decimal(2))
+                if is_volatile(widths, Decimal("0.8"), 200):
+                    selected.append(market)
+            markets = selected
+        return markets, books
+
+    def print_result(kind, result, executor):
+        for row in result.cancelled:
+            print(f"{kind.upper()} CANCEL_CONFIRMED {json.dumps(row, default=str)}", flush=True)
+        for row in result.placed:
+            print(f"{kind.upper()} ORDER_CONFIRMED {json.dumps(row, default=str)}", flush=True)
+        positions = executor.positions() if kind == "perp" else []
+        for row in positions:
+            if Decimal(str(row.get("positionAmt", "0"))):
+                print(f"PERP FILL_OR_POSITION {json.dumps(row, default=str)}", flush=True)
+        print(
+            f"{kind.upper()} CYCLE_DONE placed={len(result.placed)} cancelled={len(result.cancelled)} "
+            f"confirmations={result.awaiting_confirmations}",
+            flush=True,
         )
+
+    async def run_cycles(args, executor, kinds):
+        clients = {
+            "perp": BinanceMarketDataClient(),
+            "spot": BinanceSpotMarketDataClient(),
+        }
+        runners = {
+            "perp": AgentOSRunner(executor, args.refresh, args.max_orders, min_spread=args.min_spread),
+            "spot": SpotRunner(executor, args.refresh, args.max_orders, min_spread=args.min_spread),
+        }
         try:
             for cycle_index in range(args.cycles):
-                info = await market_data.exchange_info()
-                tickers = await market_data.ticker_24h()
-                books = parse_books(await market_data.book_tickers())
-                markets = select_markets(parse_markets(info, tickers), args.quote, args.min_volume)
                 started = time.monotonic()
-                print(
-                    f"SCAN cycle={cycle_index + 1}/{args.cycles} quote={args.quote} "
-                    f"eligible={len(markets)} spread>={args.min_spread} execution=BINANCE_AGENT_OS_MCP",
-                    flush=True,
-                )
-                result = runner.cycle(markets, books, int(time.time() * 1000))
-                for row in result.cancelled:
-                    print(f"CANCEL_CONFIRMED {json.dumps(row, default=str)}", flush=True)
-                for row in result.placed:
-                    print(f"ORDER_CONFIRMED {json.dumps(row, default=str)}", flush=True)
-                positions = executor.positions()
-                for row in positions:
-                    if Decimal(str(row.get("positionAmt", "0"))):
-                        print(f"FILL_OR_POSITION {json.dumps(row, default=str)}", flush=True)
-                print(
-                    f"CYCLE_DONE placed={len(result.placed)} cancelled={len(result.cancelled)} "
-                    f"confirmations={result.awaiting_confirmations} elapsed={time.monotonic() - started:.2f}s",
-                    flush=True,
-                )
+                for kind in kinds:
+                    markets, books = await market_snapshot(clients[kind], args, kind)
+                    print(
+                        f"{kind.upper()} SCAN cycle={cycle_index + 1}/{args.cycles} quote={args.quote} "
+                        f"eligible={len(markets)} open_cap={args.max_orders} execution=BINANCE_AGENT_OS_MCP",
+                        flush=True,
+                    )
+                    result = runners[kind].cycle(markets, books, int(time.time() * 1000))
+                    print_result(kind, result, executor)
+                print(f"ALL_SELECTED_DONE elapsed={time.monotonic() - started:.2f}s", flush=True)
                 if cycle_index + 1 < args.cycles:
                     time.sleep(args.refresh)
         finally:
-            await market_data.close()
+            for client in clients.values():
+                await client.close()
 
     def handle(args):
         executor = AgentOSExecutor(call)
@@ -85,22 +115,24 @@ def register(ctx):
             "orders": lambda: executor.open_orders(args.symbol),
             "status": lambda: {
                 "execution": "Binance Agent OS OAuth MCP",
-                "server": "binance",
+                "markets": ["USD-M perpetuals", "spot"],
+                "separate_open_order_cap": getattr(args, "max_orders", 30),
                 "credentials": "OAuth token managed by Hermes; no API key/secret",
             },
         }
-        if args.action == "run":
+        run_map = {"run-perp": ("perp",), "run-spot": ("spot",), "run-both": ("perp", "spot")}
+        if args.action in run_map:
             import asyncio
 
-            asyncio.run(run_cycles(args, executor))
+            asyncio.run(run_cycles(args, executor, run_map[args.action]))
         else:
             print(json.dumps(handlers[args.action](), indent=2, default=str))
         return 0
 
     ctx.register_cli_command(
         "binance-agent-os",
-        "Run the Binance Agent OS OAuth MCP liquidity workflow",
+        "Run Binance Agent OS OAuth MCP spot/perpetual liquidity workflows",
         setup,
         handle,
-        description="Binance Agent OS liquidity agent",
+        description="Binance Agent OS spot and perpetual liquidity agent",
     )
