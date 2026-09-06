@@ -138,15 +138,17 @@ class ModeView:
         if rec.get("quote"):
             self.quote = str(rec["quote"])
         self.mode = str(rec.get("src", self.mode)).lower()
-        eq = rec.get("eq")
-        if isinstance(eq, (int, float)):
-            self.equity = float(eq)
-            if self.baseline_equity is None:
-                self.baseline_equity = float(eq)
-        if rec.get("pos") is not None:
-            self.position_rows = list(rec["pos"])
-        if rec.get("bal") is not None:
-            self.balance_rows = list(rec["bal"])
+        # Perp is the authoritative equity/positions venue; spot only carries
+        # balances so its snapshot must not clear perp positions/equity.
+        if venue == "perp":
+            self.position_rows = list(rec["pos"]) if rec.get("pos") is not None else []
+            eq = rec.get("eq")
+            if isinstance(eq, (int, float)):
+                self.equity = float(eq)
+                if self.baseline_equity is None:
+                    self.baseline_equity = float(eq)
+        else:
+            self.balance_rows = list(rec["bal"]) if rec.get("bal") is not None else []
         if rec.get("pnl") is not None:
             self.realized_pnl = float(rec["pnl"])
 
@@ -199,17 +201,18 @@ class ModeView:
 # --------------------------------------------------------------------------- #
 
 
-def _table(venue_name: str, market: MarketState) -> Any:
+def _orders_table(market: MarketState, limit: int = 12) -> Any:
+    from rich import box
     from rich.table import Table
 
-    t = Table(title=f"{venue_name} OPEN ORDERS", box=None, expand=True)
+    t = Table(box=box.SIMPLE, expand=True, pad_edge=False, show_edge=False)
     t.add_column("SYM", style="bold cyan")
     t.add_column("SIDE")
-    t.add_column("QTY", justify="right")
-    t.add_column("PRICE", justify="right")
-    t.add_column("NOTIONAL", justify="right")
+    t.add_column("QTY", justify="right", style="yellow")
+    t.add_column("PRICE", justify="right", style="bold white")
+    t.add_column("NOTIONAL", justify="right", style="magenta")
     t.add_column("OID", style="dim")
-    for o in market.open_orders[:30]:
+    for o in market.open_orders[:limit]:
         sym = str(o.get("symbol", "?"))
         side = str(o.get("side", "")).upper()
         px = str(o.get("price", ""))
@@ -221,89 +224,181 @@ def _table(venue_name: str, market: MarketState) -> Any:
         t.add_row(sym, f"[{_side_color(side)}]{side}[/]", qt, px,
                   f"{notional:,.2f}", str(o.get("orderId", o.get("order_id", "")))[:10])
     if not market.open_orders:
-        t.add_row("[dim]— none —[/]", "", "", "", "", "")
+        t.add_row("[dim]— no live orders —[/]", "", "", "", "", "")
     return t
 
 
-def _markets_table(venue_name: str, market: MarketState) -> Any:
+def _markets_tbl(market: MarketState, limit: int = 10) -> Any:
+    from rich import box
     from rich.table import Table
 
-    t = Table(title=f"{venue_name} SCANNED MARKETS", box=None, expand=True)
+    t = Table(box=box.SIMPLE, expand=True, pad_edge=False, show_edge=False)
     t.add_column("SYM", style="bold cyan")
     t.add_column("BID", justify="right")
     t.add_column("ASK", justify="right")
-    t.add_column("SPREAD %", justify="right")
-    rows = sorted(market.markets, key=lambda r: float(r.get("spread", 0)), reverse=True)[:16]
+    t.add_column("SPR %", justify="right")
+    rows = sorted(market.markets, key=lambda r: float(r.get("spread", 0)), reverse=True)[:limit]
     for m in rows:
         sym = str(m.get("sym", "?"))
         spread = float(m.get("spread", 0))
-        # min-spread gate default is 0.02% (fraction 0.0002)
-        color = "green" if spread >= 0.02 else ("yellow" if spread >= 0.01 else "red")
-        t.add_row(sym, str(m.get("bid", "")), str(m.get("ask", "")),
-                  f"[{color}]{spread:.3f}[/]")
+        # min-spread gate default = 0.02% (0.0002 fraction)
+        color = "bright_green" if spread >= 0.02 else ("yellow" if spread >= 0.01 else "bright_red")
+        t.add_row(sym, str(m.get("bid", "")), str(m.get("ask", "")), f"[{color}]{spread:.3f}[/]")
     if not rows:
         t.add_row("[dim]awaiting scan…[/]", "", "", "")
     return t
 
 
-def _portfolio(view: ModeView) -> Any:
+def _venue_panel(label: str, subtitle: str, market: MarketState, border: str) -> Any:
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.text import Text
+
+    head = Text()
+    head.append("SCANNED", style="bold white")
+    head.append(f"  {len(market.markets)} symbols   ", style="dim")
+    head.append("SPR≥0.02 = pass", style="dim")
+    inner = Group(head, _markets_tbl(market, 6),
+                  Text("OPEN ORDERS", style="bold white"),
+                  _orders_table(market, 8))
+    return Panel(
+        inner,
+        title=f"[bold]{label}[/] [dim]{subtitle}[/]",
+        subtitle=f"[dim]{len(market.open_orders)} live[/]",
+        border_style=border,
+        padding=(0, 1),
+    )
+
+
+def _portfolio_band(view: ModeView) -> Any:
+    """Compact one-row-ish PnL/portfolio summary with colored deltas."""
+    from rich import box
     from rich.console import Group
     from rich.panel import Panel
     from rich.table import Table
 
-    t = Table(box=None, expand=True, pad_edge=False)
+    total_fills = view.perp.filled_est + view.spot.filled_est + len(view.perp.fills) + len(view.spot.fills)
+    buys = view.perp.buy_count + view.spot.buy_count
+    sells = view.perp.sell_count + view.spot.sell_count
+    equity = view.equity
+    baseline = view.baseline_equity or equity
+    delta = equity - baseline
+    delta_pct = (delta / baseline * 100) if baseline else 0.0
+    dcol = "bright_green" if delta >= 0 else "bright_red"
+    pnl = view.realized_pnl
+    pcol = "bright_green" if pnl >= 0 else "bright_red"
+
+    t = Table(box=box.SIMPLE, expand=True, pad_edge=False, show_edge=False)
     t.add_column("SYM", style="bold cyan")
     t.add_column("POS", justify="right")
     t.add_column("MARK", justify="right", style="magenta")
-    t.add_column("EST VALUE", justify="right")
-    for p in view.position_rows:
+    t.add_column("EST VALUE", justify="right", style="white")
+    for p in view.position_rows[:6]:
         amt = p.get("amt")
         mark = p.get("mark", "")
         try:
             value = float(amt) * float(mark) if amt is not None and mark else 0.0
         except (TypeError, ValueError):
             value = 0.0
-        color = "green" if float(amt or 0) >= 0 else "red"
+        color = "bright_green" if float(amt or 0) >= 0 else "bright_red"
         t.add_row(str(p.get("sym", "?")), f"[{color}]{amt:+.6g}[/]", str(mark), f"{value:,.2f}")
 
-    total_fills = view.perp.filled_est + view.spot.filled_est + len(view.perp.fills) + len(view.spot.fills)
-    pnl_color = "green" if view.realized_pnl >= 0 else "red"
-    spot_free = ", ".join(f"{b.get('asset')}={b.get('free')}" for b in view.balance_rows)
-    pnl_line = (f"[bold]REALIZED PnL[/] [{pnl_color}]{view.realized_pnl:+,.2f}[/]   "
-                f"fills(est)={total_fills}   buys={view.perp.buy_count + view.spot.buy_count}  "
-                f"sells={view.perp.sell_count + view.spot.sell_count}")
+    stat = Table(box=None, expand=True, show_header=False, pad_edge=False)
+    stat.add_column(justify="left")
+    stat.add_column(justify="right")
+    stat.add_row(
+        "[bold]EQUITY[/]",
+        f"[bold white]$[/][bold]{equity:,.2f}[/]",
+    )
+    stat.add_row(
+        "[bold]SESSION Δ[/]",
+        f"[{dcol}]{delta:+,.2f} ({delta_pct:+.2f}%)[/]",
+    )
+    stat.add_row(
+        "[bold]REALIZED PnL[/]",
+        f"[{pcol}]{pnl:+,.2f}[/]",
+    )
+    stat.add_row(
+        "[bold]TOTAL[/]",
+        f"orders={view.perp.place_total + view.spot.place_total}  "
+        f"fills≈{total_fills}  cancels={view.perp.cancelled_total + view.spot.cancelled_total}",
+    )
+    stat.add_row(
+        "[bold]BUY / SELL[/]",
+        f"[bright_green]{buys}▲[/]  [bright_red]{sells}▼[/]",
+    )
+    spot_txt = " ".join(f"[yellow]{b.get('asset')}[/]=[white]{b.get('free')}[/]"
+                        for b in view.balance_rows) or "[dim]—[/]"
+    stat.add_row("[bold]SPOT FREE[/]", spot_txt)
+
     return Panel(
-        Group(t, f"[bold]EQUITY[/] [green]${view.equity:,.2f}[/]", pnl_line,
-              "[dim]spot free:[/] " + (spot_free or "[dim]spot none[/]")),
-        title=f"[bold]{view.label} PORTFOLIO / PnL[/]", border_style="blue")
+        Group(t, stat),
+        title=f"[bold]{view.label} PORTFOLIO · PnL · STATS[/]",
+        border_style="blue",
+        padding=(0, 1),
+    )
 
 
 def _activity(view: ModeView) -> Any:
-    from rich.panel import Panel
+    from rich import box
+    from rich.table import Table
 
-    body = "\n".join(view.activity[-16:]) if view.activity else "[dim]awaiting activity…[/]"
-    return Panel(body, title="[bold]ACTIVITY LOG[/]", border_style="green")
+    t = Table(box=box.SIMPLE, expand=True, show_edge=False, pad_edge=False)
+    t.add_column("", style="dim", width=8)
+    t.add_column("ACTIVITY", no_wrap=False)
+    for line in view.activity[-12:]:
+        t.add_row("", line)
+    if not view.activity:
+        t.add_row("", "[dim]awaiting activity…[/]")
+    return t
 
 
 def _render(view: ModeView, hint: str) -> Any:
+    from datetime import UTC, datetime
+
     from rich.console import Group
     from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
 
-    eq_color = "green" if view.equity >= 0 else "red"
-    header = Panel(
-        f"[bold white]BINANCE MARKET MAKER — {view.label} MODE[/]\n"
-        f"src={view.mode}  quote={view.quote}  "
-        f"equity=[{eq_color}]${view.equity:,.2f}[/]  "
-        f"last=[dim]{view.last_t} UTC[/]  file=[dim]{view.path.name}[/]\n[dim]{hint}[/]",
-        title="[bold]DASHBOARD[/]", border_style="bright_blue",
+    clock = datetime.now(UTC).strftime("%H:%M:%S")
+    eq_color = "bright_green" if view.equity >= 0 else "bright_red"
+    mode = view.label
+
+    # Header tape (no Panel wrapper — rich Panel needs a real box)
+    tabs = Text()
+    if mode == "LIVE":
+        tabs.append("● LIVE ", style="reverse bright_white")
+        tabs.append(" DEMO  ", style="dim")
+    else:
+        tabs.append(" LIVE  ", style="dim")
+        tabs.append("● DEMO ", style="reverse bright_white")
+
+    head = Group(
+        Text.assemble(
+            ("  BINANCE ", "bold white"), ("MARKET MAKER", "bold"),
+            ("   ·   ", "dim"),
+            (f"{mode} MODE", "bold bright_yellow" if mode == "LIVE" else "bold bright_green"),
+            ("   │   ", "dim"),
+            (f"EQUITY ${view.equity:,.2f}", eq_color),
+            ("   │   ", "dim"),
+            (f"quote {view.quote}", "cyan"),
+        ),
+        Text.assemble(
+            ("  ", ""), tabs,
+            (f"   src={view.mode}    file={view.path.name}    clock {clock} UTC", "dim"),
+        ),
     )
-    return Group(header,
-                 _markets_table("PERP", view.perp),
-                 _table("PERP", view.perp),
-                 _markets_table("SPOT", view.spot),
-                 _table("SPOT", view.spot),
-                 _portfolio(view),
-                 _activity(view))
+
+    perp = _venue_panel("USDT-M PERP", "futures", view.perp, "bright_magenta")
+    spot = _venue_panel("SPOT", "trading", view.spot, "bright_cyan")
+    two_col = Table(box=None, expand=True, show_header=False, pad_edge=False)
+    two_col.add_column(ratio=1)
+    two_col.add_column(ratio=1)
+    two_col.add_row(perp, spot)
+
+    body = Group(head, two_col, _portfolio_band(view), Text("  "), _activity(view))
+    return Panel(body, border_style="dim", padding=(1, 1))
 
 
 # --------------------------------------------------------------------------- #
