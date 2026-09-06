@@ -64,7 +64,7 @@ def register(ctx):
             markets = selected
         return markets, books
 
-    def print_result(kind, result, executor, log):
+    def print_result(kind, result, executor, log, markets, books):
         for row in result.cancelled:
             print(f"{kind.upper()} CANCEL_CONFIRMED {json.dumps(row, default=str)}", flush=True)
             log.event("CANCEL_CONFIRMED", venue=kind, symbol=str(row.get("symbol", "?")),
@@ -87,9 +87,16 @@ def register(ctx):
             f"confirmations={result.awaiting_confirmations}",
             flush=True,
         )
-        _emit_snapshot(kind, executor, log)
+        _emit_snapshot(kind, executor, log, markets, books)
 
-    def _emit_snapshot(kind, executor, log):
+    def _emit_snapshot(kind, executor, log, markets, books):
+        mkts = []
+        for m in markets:
+            b = books.get(m.symbol)
+            if b:
+                spread = b.spread_fraction * Decimal(100)
+                mkts.append({"sym": m.symbol, "bid": str(b.bid), "ask": str(b.ask),
+                             "spread": f"{spread:.3f}"})
         if kind == "perp":
             od = executor.open_orders()
             pos = []
@@ -115,7 +122,7 @@ def register(ctx):
                         eq_num = 0.0
                     break
         log.snapshot(venue=kind, src="live", quote="USDT", eq=float(eq_num),
-                     od=od, pos=pos, bal=bal, pnl=0.0)
+                     od=od, pos=pos, bal=bal, pnl=0.0, mkts=mkts)
 
     async def run_cycles(args, executor, kinds):
         from binance_mm.watch import WatchLog
@@ -141,7 +148,7 @@ def register(ctx):
                         flush=True,
                     )
                     result = runners[kind].cycle(markets, books, int(time.time() * 1000))
-                    print_result(kind, result, executor, log)
+                    print_result(kind, result, executor, log, markets, books)
                 print(f"ALL_SELECTED_DONE elapsed={time.monotonic() - started:.2f}s", flush=True)
                 if cycle_index + 1 < args.cycles:
                     time.sleep(args.refresh)

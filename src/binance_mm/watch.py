@@ -72,6 +72,7 @@ class MarketState:
 
     def __init__(self, name: str) -> None:
         self.name = name
+        self.markets: list[dict[str, Any]] = []
         self.open_orders: list[dict[str, Any]] = []
         self.fills: list[dict[str, Any]] = []          # explicit FILL events
         self.seen_open: set[str] = set()               # order ids still on book
@@ -130,6 +131,8 @@ class ModeView:
     def _snapshot(self, rec: dict[str, Any]) -> None:
         venue = str(rec.get("venue", rec.get("mode", ""))).lower()
         market = self.perp if venue == "perp" else self.spot
+        if rec.get("mkts") is not None:
+            market.markets = list(rec["mkts"])
         market.open_orders = list(rec.get("od", []))
         market.mark_open({str(o.get("orderId", o.get("order_id", ""))) for o in market.open_orders})
         if rec.get("quote"):
@@ -222,6 +225,27 @@ def _table(venue_name: str, market: MarketState) -> Any:
     return t
 
 
+def _markets_table(venue_name: str, market: MarketState) -> Any:
+    from rich.table import Table
+
+    t = Table(title=f"{venue_name} SCANNED MARKETS", box=None, expand=True)
+    t.add_column("SYM", style="bold cyan")
+    t.add_column("BID", justify="right")
+    t.add_column("ASK", justify="right")
+    t.add_column("SPREAD %", justify="right")
+    rows = sorted(market.markets, key=lambda r: float(r.get("spread", 0)), reverse=True)[:16]
+    for m in rows:
+        sym = str(m.get("sym", "?"))
+        spread = float(m.get("spread", 0))
+        # min-spread gate default is 0.02% (fraction 0.0002)
+        color = "green" if spread >= 0.02 else ("yellow" if spread >= 0.01 else "red")
+        t.add_row(sym, str(m.get("bid", "")), str(m.get("ask", "")),
+                  f"[{color}]{spread:.3f}[/]")
+    if not rows:
+        t.add_row("[dim]awaiting scan…[/]", "", "", "")
+    return t
+
+
 def _portfolio(view: ModeView) -> Any:
     from rich.console import Group
     from rich.panel import Panel
@@ -274,7 +298,9 @@ def _render(view: ModeView, hint: str) -> Any:
         title="[bold]DASHBOARD[/]", border_style="bright_blue",
     )
     return Group(header,
+                 _markets_table("PERP", view.perp),
                  _table("PERP", view.perp),
+                 _markets_table("SPOT", view.spot),
                  _table("SPOT", view.spot),
                  _portfolio(view),
                  _activity(view))

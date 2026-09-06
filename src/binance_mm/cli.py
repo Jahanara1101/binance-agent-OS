@@ -153,9 +153,16 @@ class Agent:
             book = books.get(sym)
             mark = str(book.mid) if book else ""
             pos.append({"sym": sym, "amt": float(net), "mark": mark})
+        mkts = []
+        for market in self.markets:
+            book = books.get(market.symbol)
+            if book:
+                mkts.append({"sym": market.symbol, "bid": str(book.bid),
+                             "ask": str(book.ask),
+                             "spread": f"{book.spread_fraction * Decimal(100):.3f}"})
         self.log.snapshot(
             venue="perp", src="demo", quote=self.args.quote, eq=float(self.args.paper_equity),
-            od=od, pos=pos, bal=[], pnl=0.0,
+            od=od, pos=pos, bal=[], pnl=0.0, mkts=mkts,
         )
 
     async def run(self) -> None:
