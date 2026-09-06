@@ -1,32 +1,92 @@
-# Binance Agent OS Liquidity Agent
+# Binance Agent OS - Spot + Perpetual Liquidity Agent
 
-A Binance Agent OS Track A project: AI-assisted USD-M perpetual and spot liquidity workflows using Binance Agent OS OAuth MCP for every authenticated account, order, leverage, position, and cancellation action.
+A Binance Agent OS Track A project for scanning and providing maker liquidity on Binance Spot and USD-M Perpetual markets.
 
-No Binance API key or secret is accepted by this project. Hermes stores the Binance OAuth authorization and calls the official Binance MCP server.
+All authenticated reads and writes use the official Binance Agent OS OAuth MCP server. This repository does not accept Binance API keys or secrets and contains no authenticated REST-signing fallback.
 
-## What it does
+## Features
 
-- Scans all Binance USD-M perpetual markets using public market data
-- Defaults to USDT; USDC is selectable
-- Skips markets below 10,000,000 quote-asset volume over 24 hours
-- Detects entry opportunities when top-of-book spread is at least 0.02%
-- Supports normal and volatile-only selection
-- Volatile mode: closed 5-minute candles, BB(20,2) bandwidth above its rolling 80th percentile
-- Limits a proposed batch to 30 open orders and 1% total margin at 2x leverage
-- Displays scan, proposed order, cancellation, and fill state in the terminal
-- Routes authenticated execution exclusively through Binance Agent OS MCP tools
-- Keeps separate 1% allocation and maximum 30 open orders for Spot and Perp
+| Feature | USD-M Perpetual | Spot |
+|---|---:|---:|
+| Binance Agent OS OAuth execution | Yes | Yes |
+| USDT default | Yes | Yes |
+| Optional USDC markets | Yes | Yes |
+| Minimum 24h quote volume | $10M | $10M |
+| Minimum entry spread | 0.02% | 0.02% |
+| Refresh/expiry target | 3 seconds | 3 seconds |
+| Maximum simultaneously open orders | 30 | 30 |
+| Allocation | 1% of Perp equity | 1% of Spot quote balance |
+| Leverage | 2x | Not applicable |
+| Normal mode | Yes | Yes |
+| Volatile-only mode | Yes | Yes |
+
+Spot and Perp limits are independent because the balances are separate. Running both can therefore allow up to 30 open Perp orders plus 30 open Spot orders.
+
+Alpha Trading is intentionally excluded because the current Binance Agent OS MCP tool catalog does not expose authenticated Alpha order and cancellation tools. There is no API-key fallback.
+
+## Strategy
+
+Normal mode:
+
+1. Scan all trading pairs for the selected market and quote asset.
+2. Skip pairs below $10M rolling 24-hour quote volume.
+3. Calculate `(best ask - best bid) / midpoint`.
+4. Propose maker liquidity when spread is at least 0.02%.
+5. Cancel or refresh bot-owned maker orders after 3 seconds.
+
+Volatile-only mode:
+
+- Closed 5-minute candles
+- Bollinger Bands period 20, standard deviation 2
+- Current bandwidth must be above the rolling 80th percentile of 200 bandwidth observations
+
+Perpetual sizing:
+
+- Total proposed margin across open Perp entry orders: 1% of Perp equity
+- Leverage: 2x
+- Maker order: `LIMIT` with `GTX`
+- Maximum open Perp orders: 30
+
+Spot sizing:
+
+- Total proposed BUY allocation: 1% of available Spot quote balance
+- Maker order: `LIMIT_MAKER`
+- No naked shorting: without base-token inventory, the agent does not submit a SELL
+- Maximum open Spot orders: 30
+
+Fill/inventory policy:
+
+1. Cancel the bot-owned sibling quote through Agent OS.
+2. Stop new exposure on that symbol.
+3. Place an opposite maker exit through Agent OS.
+4. Refresh the exit after 3 seconds even if current spread is below 0.02%.
+5. Resume new entries only after Agent OS account/position data confirms inventory is flat.
 
 ## Architecture
 
-    Public Binance market data -> scanner and strategy -> proposed action
-                                                   |
-                                                   v
-    Hermes plugin -> Binance Agent OS OAuth MCP -> Binance Agentic sub-account
+    Binance public market data
+      - exchange information
+      - 24h quote volume
+      - book ticker
+      - 5m candles
+                |
+                v
+      scanner + BB/spread strategy
+                |
+                v
+      Hermes plugin using ctx.call_mcp
+                |
+                v
+      Binance Agent OS OAuth MCP
+                |
+                v
+      Binance Agentic sub-account
 
-Public endpoints are used only for exchange metadata, 24-hour volume, books, and candles because the current Agent OS USD-M tool set does not expose all-market 24-hour quote volume or bookTicker. No authenticated REST signing exists in this repository.
+Public endpoints are only used for unauthenticated market data. The current Agent OS USD-M catalog does not expose all-market `bookTicker` and 24-hour `quoteVolume`, so these two scanner inputs use Binance's official public endpoints. Account, balance, position, open-order, order query, leverage, order placement, and cancellation actions use Agent OS MCP.
 
-Authenticated tools:
+## Agent OS tools used
+
+Perpetual:
 
 - `futures_usds.accountInformationV3`
 - `futures_usds.positionInformationV2`
@@ -36,86 +96,128 @@ Authenticated tools:
 - `futures_usds.newOrder`
 - `futures_usds.cancelOrder`
 
-## Binance Agent OS OAuth setup
+Spot:
 
-    hermes mcp add binance --url https://agent.binance.com/mcp/agentic --auth oauth
-    hermes mcp test binance
+- `spot.getAccount`
+- `spot.getOpenOrders`
+- `spot.getOrder`
+- `spot.newOrder`
+- `spot.deleteOrder`
 
-Binance opens its own authorization page. The user logs in and selects permissions there; neither Hermes nor this repository receives the Binance password, 2FA code, API key, or secret.
+## Installation
 
-## Install the Hermes plugin
+Requirements:
 
-Clone the repository:
+- Python 3.11+
+- `uv`
+- Hermes Agent
+- Binance account eligible for Agent OS
+
+Clone and install dependencies:
 
     git clone https://github.com/ItzJulkar/binance-agent-OS.git
     cd binance-agent-OS
     uv sync --extra dev
 
-Copy the complete `hermes-plugin` directory to the active Hermes profile's plugins directory, enable it, then grant only this plugin access to the configured `binance` MCP server:
+Connect Hermes to Binance Agent OS:
+
+    hermes mcp add binance --url https://agent.binance.com/mcp/agentic --auth oauth
+    hermes mcp test binance
+
+Binance opens its own authorization page. Login, 2FA, sub-account selection, and permission approval happen only on Binance. The project never receives those credentials.
+
+Install and authorize the Hermes plugin on Windows Git Bash:
 
     cp -r hermes-plugin "$LOCALAPPDATA/hermes/plugins/binance-agent-os"
     hermes plugins enable binance-agent-os
     hermes config set plugins.entries.binance-agent-os.mcp_allowlist '["binance"]'
 
-Restart Hermes after plugin installation. The plugin exposes:
+Restart Hermes after installation.
+
+## Commands
+
+Check integration:
 
     hermes binance-agent-os status
+
+Read Agent OS account state:
+
     hermes binance-agent-os account
     hermes binance-agent-os positions
     hermes binance-agent-os orders
     hermes binance-agent-os orders --symbol BTCUSDT
+
+Run only USD-M Perpetual:
+
     hermes binance-agent-os run-perp --cycles 1 --quote USDT --strategy normal
+
+Run only Spot:
+
     hermes binance-agent-os run-spot --cycles 1 --quote USDT --strategy normal
+
+Run Spot and Perp together:
+
     hermes binance-agent-os run-both --cycles 1 --quote USDT --strategy normal
 
-Each run cycle scans current public books, reads account/order/position state through Agent OS, then submits every authenticated order or cancellation through Binance Agent OS OAuth MCP. Spot and Perp each enforce their own 30-open-order cap and 1% allocation because their funds are separate. Binance may request confirmation for each write. Start with one cycle and a low funded balance.
+USDC mode:
+
+    hermes binance-agent-os run-both --cycles 1 --quote USDC
+
+Volatile-only mode:
+
+    hermes binance-agent-os run-both --cycles 1 --strategy volatile
+
+Continuous cycles:
+
+    hermes binance-agent-os run-both --cycles 20 --refresh 3
+
+Custom thresholds:
+
+    hermes binance-agent-os run-both --min-volume 20000000 --min-spread 0.0003 --max-orders 30
+
+## Terminal output
+
+The command prints separate prefixed activity for each market:
+
+- `PERP SCAN` / `SPOT SCAN`
+- `ORDER_CONFIRMED`
+- `CANCEL_CONFIRMED`
+- `FILL_OR_POSITION`
+- confirmation count
+- cycle elapsed time
+
+This makes Spot and Perp activity distinguishable when `run-both` is used.
 
 ## Confirmation boundary
 
-Binance Agent OS requires user confirmation for write actions. Therefore a truthful Agent OS workflow cannot silently place and cancel 30 orders every three seconds unattended.
+Binance Agent OS requires confirmation for write actions. A live order or cancellation may block while waiting for Binance confirmation. Therefore:
 
-The scanner refreshes opportunities every three seconds. The Agent OS execution layer presents authenticated order/cancel operations through Binance's confirmation flow. This preserves the Agent OS security model and Track A provenance instead of bypassing it with direct API credentials.
+- The 3-second value is an expiry/earliest refresh target, not a guarantee while confirmation is pending.
+- The agent does not bypass confirmation using API credentials.
+- Start with one cycle and a low funded Agentic sub-account.
+- Never blindly retry a timed-out write without querying order state.
 
-## Strategy defaults
+## Paper visualization
 
-- Quote asset: USDT
-- Minimum 24-hour quote volume: 10,000,000
-- Entry spread: 0.02%
-- Refresh interval: 3 seconds
-- Maximum proposed open orders: 30
-- Total proposed margin: 1% of equity
-- Leverage: 2x
-- Maker order: LIMIT + GTX
-
-Fill policy:
-
-1. Detect inventory through Agent OS account/order queries.
-2. Cancel the sibling quote through Agent OS.
-3. Stop proposing fresh exposure for that symbol.
-4. Propose an opposite reduce-only maker exit.
-5. Refresh the exit after three seconds even when spread is below 0.02%.
-6. Resume two-sided quoting only when the Agent OS position query confirms flat inventory.
-
-## Scanner and paper visualization
-
-The standalone terminal scanner does not authenticate or trade. Paper mode visualizes the strategy against live public books:
+Paper mode uses live public market data and simulated orders, without authentication:
 
     uv run binance-mm --environment paper
     uv run binance-mm --environment paper --quote USDC
     uv run binance-mm --environment paper --strategy volatile
 
-The default environment is `agent-os`; authenticated commands must run through the Hermes plugin so there is no fallback path that can accidentally use direct keys.
+Authenticated execution must use the Hermes Agent OS plugin.
 
-## Tests
+## Verification
 
     uv run ruff check .
     uv run pytest -q
-
-Tests enforce that authenticated order and cancellation calls map to Agent OS MCP tools and that no API secret/HMAC order-signing path exists.
+    hermes plugins doctor binance-agent-os
+    hermes binance-agent-os --help
 
 ## Official references
 
 - Binance Agent OS MCP: https://developers.binance.com/en/docs/agent-native/mcp-server/agentic
-- Binance USD-M public market information: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information
-- Binance all-market book ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Symbol-Order-Book-Ticker
-- Binance 24-hour ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/24hr-Ticker-Price-Change-Statistics
+- Binance Spot market data: https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints
+- Binance USD-M exchange information: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information
+- Binance USD-M book ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Symbol-Order-Book-Ticker
+- Binance USD-M 24-hour ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/24hr-Ticker-Price-Change-Statistics
