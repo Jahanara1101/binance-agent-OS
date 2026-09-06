@@ -4,7 +4,6 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-
 def _project_root() -> Path:
     installed = Path(__file__).resolve().parent
     candidates = [installed, Path.cwd(), installed.parents[2] / "binance-agent-market-maker"]
@@ -36,7 +35,8 @@ def register(ctx):
     def setup(subparser):
         subparser.add_argument(
             "action",
-            choices=["status", "account", "positions", "orders", "run-perp", "run-spot", "run-both"],
+            choices=["status", "account", "positions", "orders",
+                     "run-perp", "run-spot", "run-both", "watch"],
         )
         subparser.add_argument("--symbol")
         subparser.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
@@ -64,11 +64,20 @@ def register(ctx):
             markets = selected
         return markets, books
 
-    def print_result(kind, result, executor):
+    def print_result(kind, result, executor, log):
         for row in result.cancelled:
             print(f"{kind.upper()} CANCEL_CONFIRMED {json.dumps(row, default=str)}", flush=True)
+            log.event("CANCEL_CONFIRMED", venue=kind, symbol=str(row.get("symbol", "?")),
+                      order_id=str(row.get("orderId", row.get("order_id", ""))))
         for row in result.placed:
             print(f"{kind.upper()} ORDER_CONFIRMED {json.dumps(row, default=str)}", flush=True)
+            log.event(
+                "ORDER_CONFIRMED", venue=kind, symbol=str(row.get("symbol", "?")),
+                side=str(row.get("side", "")).upper(),
+                price=str(row.get("price", row.get("orderPrice", ""))),
+                qty=str(row.get("quantity", row.get("origQty", ""))),
+                order_id=str(row.get("orderId", row.get("order_id", ""))),
+            )
         positions = executor.positions() if kind == "perp" else []
         for row in positions:
             if Decimal(str(row.get("positionAmt", "0"))):
@@ -78,8 +87,41 @@ def register(ctx):
             f"confirmations={result.awaiting_confirmations}",
             flush=True,
         )
+        _emit_snapshot(kind, executor, log)
+
+    def _emit_snapshot(kind, executor, log):
+        if kind == "perp":
+            od = executor.open_orders()
+            pos = []
+            for row in executor.positions():
+                amt = Decimal(str(row.get("positionAmt", "0")))
+                if amt:
+                    pos.append({"sym": str(row["symbol"]), "amt": float(amt),
+                                "mark": str(row.get("markPrice", ""))})
+            bal = []
+            eq_num = executor.account().get("totalMarginBalance", 0)
+        else:
+            od = executor.spot_open_orders()
+            pos = []
+            account = executor.spot_account()
+            bal = [{"asset": str(r.get("asset")), "free": str(r.get("free", "0"))}
+                   for r in account.get("balances", [])]
+            eq_num = 0.0
+            for r in account.get("balances", []):
+                if str(r.get("asset", "")).upper() == "USDT":
+                    try:
+                        eq_num = float(r.get("free", 0))
+                    except (TypeError, ValueError):
+                        eq_num = 0.0
+                    break
+        log.snapshot(venue=kind, src="live", quote="USDT", eq=float(eq_num),
+                     od=od, pos=pos, bal=bal, pnl=0.0)
 
     async def run_cycles(args, executor, kinds):
+        from binance_mm.watch import WatchLog
+
+        root = _project_root()
+        log = WatchLog(root / "logs" / "live.jsonl")
         clients = {
             "perp": BinanceMarketDataClient(),
             "spot": BinanceSpotMarketDataClient(),
@@ -99,13 +141,14 @@ def register(ctx):
                         flush=True,
                     )
                     result = runners[kind].cycle(markets, books, int(time.time() * 1000))
-                    print_result(kind, result, executor)
+                    print_result(kind, result, executor, log)
                 print(f"ALL_SELECTED_DONE elapsed={time.monotonic() - started:.2f}s", flush=True)
                 if cycle_index + 1 < args.cycles:
                     time.sleep(args.refresh)
         finally:
             for client in clients.values():
                 await client.close()
+            log.close()
 
     def handle(args):
         executor = AgentOSExecutor(call)
@@ -121,7 +164,13 @@ def register(ctx):
             },
         }
         run_map = {"run-perp": ("perp",), "run-spot": ("spot",), "run-both": ("perp", "spot")}
-        if args.action in run_map:
+        if args.action == "watch":
+            from binance_mm.watch import run_watch
+
+            root = _project_root()
+            run_watch(live_path=root / "logs" / "live.jsonl",
+                      demo_path=root / "logs" / "demo.jsonl", start="live")
+        elif args.action in run_map:
             import asyncio
 
             asyncio.run(run_cycles(args, executor, run_map[args.action]))

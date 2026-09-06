@@ -33,6 +33,7 @@ class AgentOSRunner:
         self.leverage = leverage
         self.min_spread = min_spread
         self.sequence = 0
+        self.last_snapshot: dict[str, Any] = {}
 
     def _positions(self) -> dict[str, Decimal]:
         result = {}

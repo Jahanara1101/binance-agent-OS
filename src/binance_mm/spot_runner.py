@@ -29,6 +29,7 @@ class SpotRunner:
         self.allocation = allocation
         self.min_spread = min_spread
         self.sequence = 0
+        self.last_snapshot: dict[str, Any] = {}
 
     @staticmethod
     def _balances(account: dict[str, Any]) -> dict[str, Decimal]:

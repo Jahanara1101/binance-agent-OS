@@ -5,16 +5,18 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
 
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
 from .binance import BinanceClient, parse_books, parse_markets
-from .models import Order
+from .models import Book, Order
 from .paper import PaperBroker
 from .state import Fill, InventoryBook
 from .strategy import bollinger_bandwidth, is_volatile, select_markets, size_quotes
+from .watch import WatchLog
 
 
 @dataclass
@@ -37,7 +39,7 @@ class Agent:
         self.paper = PaperBroker(Decimal(str(args.paper_equity)))
         self.active: dict[int, Order] = {}
         self.inventory = InventoryBook()
-
+        self.log = WatchLog(args.log_file)
         self.market_count = 0
         self.eligible_count = 0
         self.last_scan = 0.0
@@ -110,6 +112,9 @@ class Agent:
                 self.inventory.forget(order_id)
                 self.stats.cancelled += 1
                 self.stats.events.append(f"CANCEL {order.symbol} {order.side.value} #{order_id}")
+                self.log.event("CANCEL_CONFIRMED", venue="perp", symbol=order.symbol,
+                               side=order.side.value, price=str(order.price),
+                               qty=str(order.quantity), order_id=str(order_id))
             except (RuntimeError, ValueError, OSError) as exc:
                 self.stats.errors += 1
                 self.stats.events.append(f"CANCEL_ERR {order.symbol}: {exc}")
@@ -130,9 +135,28 @@ class Agent:
                 self.stats.events.append(
                     f"{tag} {order.symbol} {order.side.value} {order.quantity}@{order.price} #{order_id}"
                 )
+                self.log.event("ORDER_CONFIRMED", venue="perp", symbol=order.symbol,
+                               side=order.side.value, price=str(order.price),
+                               qty=str(order.quantity), order_id=str(order_id))
             except (RuntimeError, ValueError, OSError) as exc:
                 self.stats.errors += 1
                 self.stats.events.append(f"PLACE_ERR {order.symbol}: {exc}")
+
+    def _emit_snapshot(self, books: dict[str, Book]) -> None:
+        od = []
+        for order_id, order in self.active.items():
+            od.append({"orderId": order_id, "symbol": order.symbol,
+                       "side": order.side.value, "price": str(order.price),
+                       "quantity": str(order.quantity)})
+        pos = []
+        for sym, net in self.inventory._net.items():
+            book = books.get(sym)
+            mark = str(book.mid) if book else ""
+            pos.append({"sym": sym, "amt": float(net), "mark": mark})
+        self.log.snapshot(
+            venue="perp", src="demo", quote=self.args.quote, eq=float(self.args.paper_equity),
+            od=od, pos=pos, bal=[], pnl=0.0,
+        )
 
     async def run(self) -> None:
         if self.args.environment == "agent-os":
@@ -151,6 +175,9 @@ class Agent:
                             self.stats.fill_events.append(
                                 f"{fill.symbol} {fill.side.value} {fill.quantity}@{fill.price} #{fill.order_id}"
                             )
+                            self.log.event("FILL", venue="perp", symbol=fill.symbol,
+                                           side=fill.side.value, price=str(fill.price),
+                                           qty=str(fill.quantity), order_id=str(fill.order_id))
                             self.active.pop(fill.order_id, None)
                             sibling_ids = self.inventory.apply_fill(
                                 Fill(fill.order_id, fill.symbol, fill.side, fill.quantity, fill.price)
@@ -188,11 +215,13 @@ class Agent:
                     )
                     await self.place_orders(orders)
                     self.stats.cycles += 1
+                    self._emit_snapshot(books)
                     live.update(self.render())
                     await asyncio.sleep(max(0.05, self.args.refresh - (time.monotonic() - started)))
             finally:
                 await self.cancel_all()
                 await self.client.close()
+                self.log.close()
 
 
 def parser() -> argparse.ArgumentParser:
@@ -207,11 +236,40 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--margin-fraction", type=Decimal, default=Decimal("0.01"))
     p.add_argument("--leverage", type=int, default=2)
     p.add_argument("--paper-equity", type=Decimal, default=Decimal(10000))
+    p.add_argument(
+        "--log-file",
+        type=str,
+        default=str(Path(__file__).resolve().parents[2] / "logs" / "demo.jsonl"),
+    )
 
     return p
 
 
 def main() -> None:
+    import sys
+
+    # `binance-mm watch` runs the read-only dashboard in its own terminal tab.
+    if len(sys.argv) > 1 and sys.argv[1] == "watch":
+        root = Path(__file__).resolve().parents[2]
+        argv = sys.argv[2:]
+        start = "live"
+        live = root / "logs" / "live.jsonl"
+        demo = root / "logs" / "demo.jsonl"
+        i = 0
+        while i < len(argv):
+            if argv[i] == "--live" and i + 1 < len(argv):
+                live = Path(argv[i + 1]); i += 2
+            elif argv[i] == "--demo" and i + 1 < len(argv):
+                demo = Path(argv[i + 1]); i += 2
+            elif argv[i] == "--mode" and i + 1 < len(argv):
+                start = argv[i + 1]; i += 2
+            else:
+                i += 1
+        from .watch import run_watch
+
+        run_watch(live_path=live, demo_path=demo, start=start)
+        return
+
     args = parser().parse_args()
 
     agent = Agent(args)
