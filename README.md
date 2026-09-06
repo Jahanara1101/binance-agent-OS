@@ -63,6 +63,9 @@ Restart Hermes after plugin installation. The plugin exposes:
     hermes binance-agent-os positions
     hermes binance-agent-os orders
     hermes binance-agent-os orders --symbol BTCUSDT
+    hermes binance-agent-os run --cycles 1 --quote USDT --strategy normal
+
+Each `run` cycle scans current public books, reads account/order/position state through Agent OS, then submits every authenticated order or cancellation through Binance Agent OS OAuth MCP. Binance may request confirmation for each write. Start with one cycle and a low funded balance.
 
 ## Confirmation boundary
 
