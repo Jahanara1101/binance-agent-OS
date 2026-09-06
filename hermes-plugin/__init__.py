@@ -6,7 +6,13 @@ from pathlib import Path
 
 def _project_root() -> Path:
     installed = Path(__file__).resolve().parent
-    candidates = [installed, Path.cwd(), installed.parents[2] / "binance-agent-market-maker"]
+    home_repo = Path.home() / "binance-agent-market-maker"
+    candidates = [
+        installed,
+        Path.cwd(),
+        installed.parents[2] / "binance-agent-market-maker",
+        home_repo,
+    ]
     for root in candidates:
         if (root / "src" / "binance_mm" / "agent_os.py").exists():
             return root

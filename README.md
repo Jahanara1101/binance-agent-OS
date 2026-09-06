@@ -175,6 +175,32 @@ Custom thresholds:
 
     hermes binance-agent-os run-both --min-volume 20000000 --min-spread 0.0003 --max-orders 30
 
+## Observe live — standalone dashboard (no AI agent needed)
+
+The trade dashboard is a **read-only, standalone viewer**. Anyone who clones the
+repo can run it directly — it does not require Hermes, Claude, or any MCP client.
+The bot writes activity to `logs/*.jsonl`; the dashboard tails that file and
+renders a live, color-coded terminal UI (scanned markets + spreads, open orders,
+positions, portfolio/PnL, buy/sell counts, activity log).
+
+Run a paper (demo) bot in one terminal:
+
+    uv run binance-mm --environment paper --refresh 2 --max-orders 10
+
+Open a second terminal and start the dashboard (any directory inside the repo):
+
+    uv run binance-mm watch
+
+Keys:  Left/Right arrow (or `l` / `d`) switch between LIVE and DEMO views
+       `q` quits. LIVE shows the Agent OS account stream (`logs/live.jsonl`),
+       DEMO shows the paper stream (`logs/demo.jsonl`).
+
+Note on LIVE mode: real order execution always runs through the Binance Agent OS
+OAuth MCP endpoint (`agent.binance.com/mcp/agentic`) — that is how this bot meets
+the Agent OS campaign's no-API-key requirement. So live runs are driven from an
+MCP-connected context (e.g. `hermes binance-agent-os run-perp`); the dashboard
+itself is independent of that connection.
+
 ## Terminal output
 
 The command prints separate prefixed activity for each market:

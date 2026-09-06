@@ -117,6 +117,7 @@ class ModeView:
         self.mode = label.lower()
         self.last_t = ""
         self._offset = 0
+        self._tail_bytes = 200_000
 
     # -- ingestion --------------------------------------------------------- #
 
@@ -184,7 +185,18 @@ class ModeView:
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8") as fh:
-            fh.seek(self._offset)
+            # Start near the tail (tail -f semantics): on first open jump to a
+            # bounded recent window so huge existing logs don't replay fully.
+            if self._offset == 0:
+                fh.seek(0, 2)
+                size = fh.tell()
+                if size > self._tail_bytes:
+                    fh.seek(size - self._tail_bytes)
+                    fh.readline()  # drop partial leading line
+                else:
+                    fh.seek(0)
+            else:
+                fh.seek(self._offset)
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -420,6 +432,10 @@ class Dashboard:
 
     def _input_thread(self) -> None:
         import sys
+
+        if sys.platform == "win32":
+            self._windows_input()
+            return
         import termios
         import tty
 
@@ -431,11 +447,11 @@ class Dashboard:
                 ch = sys.stdin.read(1)
                 if not ch:
                     break
-                if ch in ("\x1b",):  # could be escape sequence; read arrows
+                if ch == "\x1b":
                     seq = sys.stdin.read(2)
-                    if seq == "[C":      # Right
+                    if seq == "[C":
                         self.active = "DEMO"
-                    elif seq == "[D":    # Left
+                    elif seq == "[D":
                         self.active = "LIVE"
                 elif ch in ("l", "L"):
                     self.active = "LIVE"
@@ -445,6 +461,24 @@ class Dashboard:
                     break
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    def _windows_input(self) -> None:
+        import msvcrt
+
+        while True:
+            ch = msvcrt.getwch()
+            if ch in ("\x00", "\xe0"):  # arrow/function key prefix
+                arrow = msvcrt.getwch()
+                if arrow == "M":       # Right
+                    self.active = "DEMO"
+                elif arrow == "K":     # Left
+                    self.active = "LIVE"
+            elif ch in ("l", "L"):
+                self.active = "LIVE"
+            elif ch in ("d", "D"):
+                self.active = "DEMO"
+            elif ch in ("q", "Q"):
+                break
 
     def run(self) -> None:
         from rich.console import Console
