@@ -150,11 +150,8 @@ class Agent:
             else:
                 left.append(f"  [dim]{ev}[/]")
 
-        # ---------- MIDDLE pool: branding + open orders + portfolio + stats ----------
+        # ---------- MIDDLE pool: open orders + portfolio + stats ----------
         mid: list[str] = []
-        mid.append(Text("  JULKAR.ETH", style="bold bright_cyan"))
-        mid.append(Text("  By", style="dim bright_cyan"))
-        mid.append(Text(""))
         mid.append("[bold white]▌ OPEN ORDERS[/]")
         mid.append("[dim]  SYMBOL        SIDE  QTY        PRICE       NOTIONAL[/]")
         if self.active:
