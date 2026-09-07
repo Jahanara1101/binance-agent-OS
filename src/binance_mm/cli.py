@@ -14,6 +14,7 @@ from rich.table import Table
 from .binance import BinanceClient, parse_books, parse_markets
 from .models import Book, Order
 from .paper import PaperBroker
+from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
 from .strategy import bollinger_bandwidth, is_volatile, select_markets, size_quotes
 from .watch import WatchLog
@@ -246,7 +247,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--log-file",
         type=str,
-        default=str(Path(__file__).resolve().parents[2] / "logs" / "demo.jsonl"),
+        default=str(demo_log()),
     )
 
     return p
@@ -263,15 +264,12 @@ def main() -> None:
     import sys
 
     argv = sys.argv[1:]
-    root = Path(__file__).resolve().parents[2]
-    logs = root / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
 
     # --- subcommand dispatch (simple for public users) -------------------- #
     if argv and argv[0] == "watch":
         start = "live"
-        live = logs / "live.jsonl"
-        demo = logs / "demo.jsonl"
+        live = live_log()
+        demo = demo_log()
         i = 1
         while i < len(argv):
             if argv[i] == "--live" and i + 1 < len(argv):
@@ -288,7 +286,7 @@ def main() -> None:
         return
 
     if argv and argv[0] == "live":
-        log = logs / "demo.jsonl"
+        log = demo_log()
         i = 1
         while i < len(argv):
             if argv[i] == "--log" and i + 1 < len(argv):
@@ -312,7 +310,7 @@ def main() -> None:
     args = parser().parse_args()
     if args.environment == "agent-os":
         args.environment = "paper"
-        args.log_file = str(logs / "demo.jsonl")
+        args.log_file = str(demo_log())
     _run_bot(args)
 
 

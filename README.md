@@ -7,33 +7,28 @@ All authenticated reads and writes use the official Binance Agent OS OAuth MCP s
 ## Quick start (demo, no real money, no AI needed)
 
 1. Install [uv](https://docs.astral.sh/uv/#installation) (one command).
-2. Clone and enter the repo:
+2. Clone and **install once** (this puts the `binance-mm` command on your PATH):
    ```
    git clone https://github.com/ItzJulkar/binance-agent-OS
    cd binance-agent-OS
-   uv sync
+   uv tool install -e .
    ```
-3. Run the **demo bot** (paper trades, real market data, sensible defaults baked in):
-   ```
-   uv run binance-mm demo
-   ```
-   or on Windows just double-click **`demo.bat`**. Stop with `Ctrl+C`.
+3. Now run `binance-mm` **from any folder — no `cd` needed**:
+   - `binance-mm demo`  → paper (demo) bot: real market data, simulated fills.
+   - `binance-mm live`  → realtime orderbook terminal (every market's spread).
+   - `binance-mm watch` → two-venue dashboard (LIVE ⇄ DEMO).
 
-4. In a **second terminal** (inside the repo), open the **realtime orderbook
-   terminal** — live bid/ask/spread for every eligible market, streamed over
-   Binance WebSocket, plus the bot's equity/order summary:
+   Example — open two terminals, run in each:
    ```
-   uv run binance-mm live
+   binance-mm demo        # terminal 1: the bot
+   binance-mm live        # terminal 2: live spreads / orderbook
    ```
-   Scroll: ↑/↓ or `w`/`s`, PgUp/PgDn, Home/End. Quit: `q`.
+   Stop the bot with `Ctrl+C`. `live`/`watch` scroll with ↑/↓ (or w/s),
+   PgUp/PgDn, Home/End; switch dashboard views with ←/→; quit with `q`.
+   Windows users can double-click **`demo.bat`** / **`live.bat`** / **`watch.bat`**
+   instead of typing.
 
-   Or open the two-venue dashboard (`watch`): arrows switch LIVE ⇄ DEMO, `q` quits.
-   ```
-   uv run binance-mm watch
-   ```
-
-That is all you need to see it work. No flags, no API keys. `binance-mm demo`,
-`binance-mm live` and `binance-mm watch` are the three commands.
+No flags, no API keys, no per-terminal `cd`. Logs go to `~/.binance-mm/logs/`.
 
 Live real-money execution goes through the Binance Agent OS OAuth MCP
 connection (see "Installation / live" below) and is driven from an MCP client;
@@ -220,22 +215,22 @@ positions, portfolio/PnL, buy/sell counts, activity log).
 
 Run a paper (demo) bot in one terminal:
 
-    uv run binance-mm --environment paper --refresh 2 --max-orders 10
+    binance-mm demo
 
 Open a second terminal and start a **realtime orderbook terminal** — every
 eligible USDT-M perpetual with live bid/ask/spread streamed from Binance's
 WebSocket (!bookTicker), plus the bot's equity/orders summary. Scroll with
 ↑/↓ (or w/s), PgUp/PgDn, Home/End; `q` quits:
 
-    uv run binance-mm live
+    binance-mm live
 
 There is also a richer two-venue dashboard (LIVE/DEMO toggle):
 
-    uv run binance-mm watch          # ←/→ switches LIVE ⇄ DEMO, q quits
+    binance-mm watch          # ←/→ switches LIVE ⇄ DEMO, q quits
 
 Keys:  Left/Right arrow (or `l` / `d`) switch between LIVE and DEMO views
-       in `watch`. LIVE shows the Agent OS account stream (`logs/live.jsonl`),
-       DEMO shows the paper stream (`logs/demo.jsonl`).
+       in `watch`. LIVE shows the Agent OS account stream (`~/.binance-mm/logs/live.jsonl`),
+       DEMO shows the paper stream (`~/.binance-mm/logs/demo.jsonl`).
 
 Note on LIVE mode: real order execution always runs through the Binance Agent OS
 OAuth MCP endpoint (`agent.binance.com/mcp/agentic`) — that is how this bot meets

@@ -1,5 +1,5 @@
 @echo off
 rem Demo (paper) market maker - no real money. Press Ctrl+C to stop.
-cd /d "%~dp0"
-uv run binance-mm demo
+rem Requires one-time install:  uv tool install -e <repo-folder>
+binance-mm demo
 pause

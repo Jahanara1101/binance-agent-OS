@@ -132,9 +132,9 @@ def register(ctx):
 
     async def run_cycles(args, executor, kinds):
         from binance_mm.watch import WatchLog
+        from binance_mm.paths import demo_log, live_log
 
-        root = _project_root()
-        log = WatchLog(root / "logs" / "live.jsonl")
+        log = WatchLog(live_log())
         clients = {
             "perp": BinanceMarketDataClient(),
             "spot": BinanceSpotMarketDataClient(),
@@ -179,14 +179,14 @@ def register(ctx):
         run_map = {"run-perp": ("perp",), "run-spot": ("spot",), "run-both": ("perp", "spot")}
         if args.action == "watch":
             from binance_mm.watch import run_watch
+            from binance_mm.paths import demo_log, live_log
 
-            root = _project_root()
-            run_watch(live_path=root / "logs" / "live.jsonl",
-                      demo_path=root / "logs" / "demo.jsonl", start="live")
+            run_watch(live_path=live_log(), demo_path=demo_log(), start="live")
         elif args.action == "live":
             from binance_mm.live import run_live
+            from binance_mm.paths import demo_log
 
-            run_live(_project_root() / "logs" / "demo.jsonl")
+            run_live(demo_log())
         elif args.action in run_map:
             import asyncio
 
