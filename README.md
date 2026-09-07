@@ -13,28 +13,28 @@ All authenticated reads and writes use the official Binance Agent OS OAuth MCP s
    cd binance-agent-OS
    uv tool install -e .
    ```
-3. Now run `binance-mm` **from any folder — no `cd` needed**:
-   - `binance-mm demo perp` → paper perp bot (USDT-M futures): real market data, simulated fills.
-   - `binance-mm demo spot` → paper spot bot (no-naked-sell, 2% of quote per BUY).
-   - `binance-mm live perp` → realtime perp orderbook (every market's spread).
-   - `binance-mm live spot` → realtime spot orderbook.
+3. Now run `binance-mm` :
+   - `binance-mm demo perp` → paper perp bot (USDT-M futures)
+   - `binance-mm demo spot` → paper spot bot 
+   - `binance-mm live perp` → realtime perp orderbook (Uses real money from your binance account)
+   - `binance-mm live spot` → realtime spot orderbook. (Uses real money from your binance account)
    - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO).
    - `binance-mm safe-exit` → cancel opens, hedge inventory out via maker, no new entries, stop when flat.
 
    (There is no bare `binance-mm demo` — always pick a venue.)
 
-   Example — open two terminals, run in each:
+   Example — open terminals, run in each:
    ```
-   binance-mm demo perp     # terminal 1: the perp bot
-   binance-mm demo spot     # or a spot bot in its own terminal
-   binance-mm live perp     # terminal 2: live perp spreads / orderbook
+   binance-mm demo perp     
+   binance-mm demo spot     
+   binance-mm live perp   
    ```
    Stop the bot with `Ctrl+C`. `live`/`watch` scroll with ↑/↓ (or w/s),
    PgUp/PgDn, Home/End; switch dashboard views with ←/→; quit with `q`.
    Windows users can double-click **`demo.bat`** / **`live.bat`** / **`watch.bat`**
    instead of typing.
 
-No flags, no API keys, no per-terminal `cd`. Logs go to `~/.binance-mm/logs/`.
+No flags, no API keys. Logs go to `~/.binance-mm/logs/`.
 
 Live real-money execution goes through the Binance Agent OS OAuth MCP
 connection (see "Installation / live" below) and is driven from an MCP client;
