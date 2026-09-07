@@ -15,38 +15,9 @@ from rich.text import Text
 from .binance import BinanceClient, parse_markets
 from .models import Book, Order, Side
 
-# ---- 3D branding banner (programmatic extrusion: front + back face + depth) ----
-# banner3 figlet letters extruded into cubes (diagonal \ connectors + _ bottom
-# face) — genuine 3D depth, not a flat font. Vertical gradient at render time.
-_BANNER_BY = [
-    " ___         ",
-    "| _ \\\\_  _    ",
-    "| _ \\\\\\\\|| \\\\   ",
-    "|_____\\\\, |\\\\  ",
-    "   | __)_ \\\\\\\\ ",
-    "   | _____|\\\\\\\\",
-    "   |_______ \\\\",
-    "        ____ ",
-]
-_BANNER_JULKAR = [
-    "      ## ##     ## ##       ##    ##    ###    ########      ######## ########   ",
-    "      ## ##     ## ##       ##   ##    ## ##   ##     ##     ##          ##   \\  ",
-    "      ## ##     ## ##       ##  ##    ##   ##  ##     ##     ##          ##\\   \\ ",
-    "      ## ## ##  ## ## ##    #####    ##    ### ###########   ########### ##\\###\\",
-    "##    ## ## ##  ## ## ##    ## ###  ############# ####   ##  ## ##       ##\\   ",
-    "##    ## ## ##  ## ## ##    ## ########  ## ##### ## ##  ### ## ##       ##\\   ",
-    " ######  ########  ######## ## ##### ## ##  ## ## ########## #########   ##\\   ",
-    "## ##  #### ##     ## ##       ##  ##   ######### ##   ##       ##         \\\\   ",
-    "## ##  ##\\# ##     ## ##       ##   ##  ##     ## ##    ##  ### ##          \\   ",
-    r"##  #####\  #######  ######## ##    ## ##     ## ##     ## ### ########    #\   ",
-    r"#########\                                                                     ",
-    r"## ##  ##\                                                                     ",
-    r"## ##  ##\                                                                     ",
-    r"## ######\                                                                     ",
-    r" __##   __\                                                                     ",
-    r"  __#    __\                                                                     ",
-    "   __     __                                                                     ",
-]
+# ---- 3D branding banner (3D-ASCII font: isometric depth faces) ----
+# Art lives in banner.txt (avoids backslash-escaping bugs); vertical gradient
+# applied at render time.
 _BANNER_GRADIENT = [
     "bright_cyan", "cyan", "deep_sky_blue3", "dodger_blue3", "steel_blue3",
     "slate_blue3", "grey50",
@@ -219,20 +190,22 @@ class Agent:
         mid.append(f"  open      [white]{len(self.active)}[/]")
         mid.append(f"  errors    [red]{self.stats.errors}[/]")
         mid.append("")
-        # ---- 3D branding banner (3D extrusion + vertical gradient) ----
-        _bw = max(len(l) for l in _BANNER_JULKAR)
+        # ---- 3D branding banner (3D-ASCII isometric + vertical gradient) ----
+        _by = [" ___", "| _ )_  _", "| _ \\ || |", "|___/\\_, |", "     |__/"]
+        _jul = Path(__file__).with_name("banner.txt").read_text().splitlines()
+        _bw = max(len(l) for l in _jul)
         _c = _bw // 2
-        for _i, _line in enumerate(_BANNER_BY):
+        for _i, _line in enumerate(_by):
             _w = len(_line)
             _pad = max(0, _c - _w // 2)
             _col = _BANNER_GRADIENT[min(_i, len(_BANNER_GRADIENT) - 1)]
-            mid.append(f"  [dim {_col}]{' ' * _pad}{_line}[/]")
-        mid.append("")
-        for _i, _line in enumerate(_BANNER_JULKAR):
+            mid.append(Text("  " + " " * _pad + _line, style=f"dim {_col}"))
+        mid.append(Text(""))
+        for _i, _line in enumerate(_jul):
             _w = len(_line)
             _pad = max(0, _c - _w // 2)
             _col = _BANNER_GRADIENT[min(_i, len(_BANNER_GRADIENT) - 1)]
-            mid.append(f"  [{_col}]{' ' * _pad}{_line}[/]")
+            mid.append(Text("  " + " " * _pad + _line, style=_col))
 
         # ---------- RIGHT pool: live orderbook spreads ----------
         spreads: list[tuple[str, Decimal, Decimal, float]] = []
@@ -270,7 +243,7 @@ class Agent:
             m = mid[i] if i < len(mid) else ""
             r = right[i] if i < len(right) else ""
             lt = Text.from_markup(l, emoji=False)
-            mt = Text.from_markup(m, emoji=False)
+            mt = m if isinstance(m, Text) else Text.from_markup(m, emoji=False)
             rt = Text.from_markup(r, emoji=False)
             # clip each column to its width so nothing overflows into the next
             if lt.cell_len > lw:
