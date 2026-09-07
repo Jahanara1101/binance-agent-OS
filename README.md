@@ -14,17 +14,19 @@ All authenticated reads and writes use the official Binance Agent OS OAuth MCP s
    uv tool install -e .
    ```
 3. Now run `binance-mm` **from any folder — no `cd` needed**:
-   - `binance-mm demo`      → paper perp bot (USDT-M futures): real market data, simulated fills.
+   - `binance-mm demo perp` → paper perp bot (USDT-M futures): real market data, simulated fills.
    - `binance-mm demo spot` → paper spot bot (no-naked-sell, 1% of quote per BUY).
-   - `binance-mm demo perp` → paper perp bot (same as `demo`).
-   - `binance-mm live`      → realtime orderbook terminal (every market's spread).
+   - `binance-mm live perp` → realtime perp orderbook (every market's spread).
+   - `binance-mm live spot` → realtime spot orderbook.
    - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO).
+
+   (There is no bare `binance-mm demo` — always pick a venue.)
 
    Example — open two terminals, run in each:
    ```
-   binance-mm demo        # terminal 1: the perp bot
-   binance-mm demo spot   # or a spot bot in its own terminal
-   binance-mm live        # terminal 2: live spreads / orderbook
+   binance-mm demo perp     # terminal 1: the perp bot
+   binance-mm demo spot     # or a spot bot in its own terminal
+   binance-mm live perp     # terminal 2: live perp spreads / orderbook
    ```
    Stop the bot with `Ctrl+C`. `live`/`watch` scroll with ↑/↓ (or w/s),
    PgUp/PgDn, Home/End; switch dashboard views with ←/→; quit with `q`.
@@ -205,14 +207,14 @@ positions, portfolio/PnL, buy/sell counts, activity log).
 
 Run a paper (demo) bot in one terminal:
 
-    binance-mm demo
+    binance-mm demo perp     # or: binance-mm demo spot
 
 Open a second terminal and start a **realtime orderbook terminal** — every
-eligible USDT-M perpetual with live bid/ask/spread streamed from Binance's
-WebSocket (!bookTicker), plus the bot's equity/orders summary. Scroll with
-↑/↓ (or w/s), PgUp/PgDn, Home/End; `q` quits:
+eligible USDT-M perpetual (or spot) with live bid/ask/spread streamed from
+Binance's WebSocket (!bookTicker), plus the bot's equity/orders summary.
+Scroll with ↑/↓ (or w/s), PgUp/PgDn, Home/End; `q` quits:
 
-    binance-mm live
+    binance-mm live perp     # or: binance-mm live spot
 
 There is also a richer two-venue dashboard (LIVE/DEMO toggle):
 

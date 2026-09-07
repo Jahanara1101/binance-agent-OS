@@ -30,9 +30,10 @@ from rich.text import Text
 from .feeds import BookFeed
 
 _FUTURES_REST = "https://fapi.binance.com"
+_SPOT_REST = "https://api.binance.com"
 
 
-def _eligible_symbols() -> list[str]:
+def _eligible_symbols(venue: str = "perp") -> list[str]:
     from decimal import Decimal
 
     import httpx
@@ -40,12 +41,19 @@ def _eligible_symbols() -> list[str]:
     from .binance import parse_markets
     from .strategy import select_markets
 
+    if venue == "spot":
+        base, ctype = _SPOT_REST, "SPOT"
+        info_path, ticker_path = "/api/v3/exchangeInfo", "/api/v3/ticker/24hr"
+    else:
+        base, ctype = _FUTURES_REST, "PERPETUAL"
+        info_path, ticker_path = "/fapi/v1/exchangeInfo", "/fapi/v1/ticker/24hr"
     with httpx.Client(timeout=15) as c:
-        info = c.get(_FUTURES_REST + "/fapi/v1/exchangeInfo").json()
-        tickers = c.get(_FUTURES_REST + "/fapi/v1/ticker/24hr").json()
-    perp = [m for m in parse_markets(info, tickers)
-            if m.contract_type == "PERPETUAL" and m.status == "TRADING"]
-    return [m.symbol for m in select_markets(perp, "USDT", Decimal(10_000_000))]
+        info = c.get(base + info_path).json()
+        tickers = c.get(base + ticker_path).json()
+    markets = [m for m in parse_markets(info, tickers)
+               if m.contract_type == ctype and m.status == "TRADING"]
+    min_vol = Decimal(1_000_000) if venue == "spot" else Decimal(10_000_000)
+    return [m.symbol for m in select_markets(markets, "USDT", min_vol)]
 
 
 # --------------------------------------------------------------------------- #
@@ -54,10 +62,11 @@ def _eligible_symbols() -> list[str]:
 
 
 class BotState:
-    """Last perp snapshot + open orders from the log the bot writes."""
+    """Last venue snapshot + open orders from the log the bot writes."""
 
-    def __init__(self, log_path: str | Path) -> None:
+    def __init__(self, log_path: str | Path, venue: str = "perp") -> None:
         self.path = Path(log_path)
+        self.venue = venue
         self.equity = 0.0
         self.baseline: float | None = None
         self.positions: list[dict[str, Any]] = []
@@ -87,13 +96,14 @@ class BotState:
 
     def _apply(self, rec: dict[str, Any]) -> None:
         venue = str(rec.get("venue", "")).lower()
-        if venue != "perp":
+        if venue != self.venue:
             return
         kind = rec.get("kind")
         self.last_t = str(rec.get("t", ""))[11:19]
         if kind == "snapshot":
             self.open_orders = list(rec.get("od", []))
             self.positions = [p for p in rec.get("pos", []) if float(p.get("amt", 0)) != 0]
+            # spot snapshots carry balances; perp carries a margin-equity figure
             eq = rec.get("eq")
             if isinstance(eq, (int, float)):
                 self.equity = float(eq)
@@ -126,9 +136,10 @@ class BotState:
 
 class LiveTerminal:
     def __init__(self, log_path: str | Path, sort: str = "spread",
-                 per_page: int = 30) -> None:
+                 per_page: int = 30, venue: str = "perp") -> None:
+        self.venue = venue
         self.feed: BookFeed | None = None
-        self.bot = BotState(log_path)
+        self.bot = BotState(log_path, venue)
         self.offset = 0
         self.sort = sort
         self.per_page = per_page
@@ -241,7 +252,8 @@ class LiveTerminal:
                       else f"● reconnecting ({self.feed.error})" if (self.feed and self.feed.error)
                       else "○ connecting")
         t = Text.assemble(
-            ("BINANCE ", "bold white"), ("USDT-M PERP LIVE", "bold"),
+            ("BINANCE ", "bold white"),
+            (("USDT-M PERP LIVE" if self.venue == "perp" else "SPOT LIVE"), "bold"),
             ("   ", ""),
             (f"markets {total}", "cyan"),
             ("   ", ""), (feed_state, "green"),
@@ -273,9 +285,9 @@ class LiveTerminal:
 
     def run(self) -> None:
         print("loading eligible markets…", end="", flush=True)
-        syms = _eligible_symbols()
+        syms = _eligible_symbols(self.venue)
         print(f" {len(syms)}", flush=True)
-        self.feed = BookFeed(syms)
+        self.feed = BookFeed(syms, venue=self.venue)
         self.feed.start()
 
         t = threading.Thread(target=self._input_thread, daemon=True)
@@ -297,5 +309,5 @@ class LiveTerminal:
                 self.feed.stop()
 
 
-def run_live(log_path: str | Path) -> None:
-    LiveTerminal(log_path).run()
+def run_live(log_path: str | Path, venue: str = "perp") -> None:
+    LiveTerminal(log_path, venue=venue).run()

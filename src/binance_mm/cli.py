@@ -331,7 +331,8 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Binance USD-M perpetual liquidity agent")
     p.add_argument("--environment", choices=["agent-os", "paper"], default="agent-os")
     p.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
-    p.add_argument("--min-volume", type=Decimal, default=Decimal(10000000))
+    p.add_argument("--min-volume", type=Decimal, default=None,
+                   help="min 24h quote volume (default: perp $10M, spot $1M)")
     p.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))
     p.add_argument("--refresh", type=float, default=1.0)
     p.add_argument("--max-orders", type=int, default=30)
@@ -380,40 +381,53 @@ def main() -> None:
         return
 
     if argv and argv[0] == "live":
+        venue = "perp"
         log = demo_log()
         i = 1
         while i < len(argv):
-            if argv[i] == "--log" and i + 1 < len(argv):
+            if argv[i] in ("spot", "perp"):
+                venue = argv[i]; i += 1
+            elif argv[i] == "--log" and i + 1 < len(argv):
                 log = Path(argv[i + 1]); i += 2
             else:
                 i += 1
         from .live import run_live
 
-        run_live(log)
+        run_live(log, venue=venue)
         return
 
-    # `demo` / bare `binance-mm` => paper (demo) bot, sensible defaults.
-    # Optional venue token: `binance-mm demo spot` or `binance-mm demo perp`.
+    # `binance-mm demo` (bare) is intentionally NOT a shortcut anymore.
+    # Use `binance-mm demo spot` or `binance-mm demo perp` explicitly.
     venue = "perp"
     if argv and argv[0] in ("demo", "paper"):
         argv = argv[1:]
         if argv and argv[0] in ("spot", "perp"):
             venue = argv[0]
             argv = argv[1:]
+        elif argv and argv and not argv[0].startswith("-"):
+            print(f"Unknown venue '{argv[0]}'. Use: binance-mm demo spot | binance-mm demo perp")
+            raise SystemExit(2)
+        elif not argv:
+            print("Specify a venue: binance-mm demo spot  |  binance-mm demo perp")
+            raise SystemExit(2)
     elif argv and argv[0] in ("spot", "perp"):
         venue = argv[0]
         argv = []
     elif argv and argv[0].startswith("-"):
-        pass  # legacy: bare flags only
+        pass  # legacy: bare flags still work
     else:
-        argv = []  # bare `binance-mm` == demo
+        print("Usage: binance-mm demo spot | binance-mm demo perp | binance-mm live [spot|perp]")
+        raise SystemExit(2)
 
     sys.argv = [sys.argv[0]] + argv
     args = parser().parse_args()
     args.venue = venue
+    if args.min_volume is None:
+        args.min_volume = Decimal(1000000) if venue == "spot" else Decimal(10000000)
+    # venue-specific demo log so live can show perp and spot separately
+    args.log_file = str(demo_log() if venue == "perp" else Path(str(demo_log()).replace("demo.jsonl", "demo-spot.jsonl")))
     if args.environment == "agent-os":
         args.environment = "paper"
-        args.log_file = str(demo_log())
     _run_bot(args)
 
 

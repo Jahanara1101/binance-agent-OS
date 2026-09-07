@@ -22,14 +22,18 @@ import websockets
 # Raw combined stream (direct /ws/!bookTicker did not connect from some
 # networks; the /stream endpoint with ?streams= worked reliably).
 _FUTURES_STREAM = "wss://fstream.binance.com/stream?streams=!bookTicker"
+_SPOT_STREAM = "wss://stream.binance.com/stream?streams=!bookTicker"
 
 
 class BookFeed:
     """Subscribes to !bookTicker and keeps per-symbol bid/ask/spread fresh."""
 
-    def __init__(self, symbols: list[str], reconnect_s: float = 3.0) -> None:
+    def __init__(self, symbols: list[str], reconnect_s: float = 3.0,
+                 venue: str = "perp") -> None:
         self.symbols: set[str] = set(symbols)
         self.reconnect_s = reconnect_s
+        self.venue = venue
+        self._stream = _SPOT_STREAM if venue == "spot" else _FUTURES_STREAM
         self._books: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -68,7 +72,7 @@ class BookFeed:
             self.error = None
             try:
                 async with websockets.connect(
-                    _FUTURES_STREAM, open_timeout=8, ping_interval=20, ping_timeout=20
+                    self._stream, open_timeout=8, ping_interval=20, ping_timeout=20
                 ) as ws:
                     self.connected = True
                     self.error = None
