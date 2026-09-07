@@ -1,44 +1,56 @@
 # Binance Agent OS - Spot + Perpetual Liquidity Agent
 
-A Binance Agent OS Track A project for scanning and providing maker liquidity on Binance Spot and USD-M Perpetual markets.
+A maker-liquidity agent for Binance Spot and USD-M Perpetual markets. Runs a
+live orderbook dashboard and a market-making bot, all from one `binance-mm`
+command. No API keys anywhere — authenticated trading goes through the
+official Binance Agent OS OAuth MCP server.
 
-All authenticated reads and writes use the official Binance Agent OS OAuth MCP server. This repository does not accept Binance API keys or secrets and contains no authenticated REST-signing fallback.
-
-## Quick start (You can try both Demo trading and Live trading)
+## Quick start (demo — no real money, no AI client needed)
 
 1. Install [uv](https://docs.astral.sh/uv/#installation) (one command).
-2. Clone and **install once** (this puts the `binance-mm` command on your PATH):
+2. Clone and **install once** (puts `binance-mm` on your PATH):
    ```
    git clone https://github.com/ItzJulkar/binance-agent-OS
    cd binance-agent-OS
    uv tool install -e .
    ```
-3. Now run `binance-mm` :
-   - `binance-mm demo perp` → paper perp bot (USDT-M futures)
-   - `binance-mm demo spot` → paper spot bot 
-   - `binance-mm live perp` → realtime perp orderbook (Uses real money from your binance account)
-   - `binance-mm live spot` → realtime spot orderbook. (Uses real money from your binance account)
-   - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO).
-   - `binance-mm safe-exit` → cancel opens, hedge inventory out via maker, no new entries, stop when flat.
+3. Run `binance-mm` from any folder:
+   - `binance-mm demo perp` → paper perp bot (USDT-M futures, simulated fills)
+   - `binance-mm demo spot` → paper spot bot
+   - `binance-mm live perp` → realtime perp orderbook (every market's spread)
+   - `binance-mm live spot` → realtime spot orderbook
+   - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO)
+   - `binance-mm safe-exit` → cancel opens, hedge inventory out via maker, no new entries, stop when flat
 
    (There is no bare `binance-mm demo` — always pick a venue.)
 
-   Example — open terminals, run in each:
-   ```
-   binance-mm demo perp     
-   binance-mm demo spot     
-   binance-mm live perp   
-   ```
    Stop the bot with `Ctrl+C`. `live`/`watch` scroll with ↑/↓ (or w/s),
-   PgUp/PgDn, Home/End; switch dashboard views with ←/→; quit with `q`.
-   Windows users can double-click **`demo.bat`** / **`live.bat`** / **`watch.bat`**
-   instead of typing.
+   PgUp/PgDn, Home/End; switch views with ←/→; quit with `q`.
+   Windows users can double-click **`demo.bat`** / **`live.bat`** / **`watch.bat`**.
 
-No flags, no API keys. Logs go to `~/.binance-mm/logs/`.
+No flags, no API keys, no per-terminal `cd`. Logs go to `~/.binance-mm/logs/`.
 
-Live real-money execution goes through the Binance Agent OS OAuth MCP
-connection (see "Installation / live" below) and is driven from an MCP client;
-everything in `demo` / `live` / `watch` runs standalone.
+## Live trading (real money) — any AI client
+
+Live order execution runs through the **Binance Agent OS OAuth MCP server**
+(`agent.binance.com/mcp/agentic`). This is how the bot meets the Agent OS
+campaign's no-API-key requirement — Binance authorizes the connection itself.
+
+You do **not** need Hermes. Connect the Agent OS MCP endpoint from **any** MCP
+client you already use — Claude, GPT, Cursor, or any MCP-aware assistant:
+
+- Endpoint: `https://agent.binance.com/mcp/agentic`
+- Auth: **OAuth** (Binance opens its own authorization page; login, 2FA,
+  sub-account selection and permission approval happen only on Binance. The
+  project never receives those credentials.)
+
+Full setup and tool reference: see the official docs →
+**https://developers.binance.com/en/docs/agent-native/mcp-server/agentic**
+
+Once connected, the client can read account/positions/orders and place/cancel
+orders through the Agent OS tools. The `binance-mm` dashboard (demo/live/watch)
+is independent of that connection — it reads local log files and needs no AI
+client at all.
 
 ## Features
 
@@ -51,9 +63,12 @@ everything in `demo` / `live` / `watch` runs standalone.
 | Leverage | 5x | Not applicable |
 | Normal mode | Yes | Yes |
 
-Spot and Perp limits are independent because the balances are separate. Running both can therefore allow up to 30 open Perp orders plus 30 open Spot orders.
+Spot and Perp limits are independent because the balances are separate. Running
+both can therefore allow up to 30 open Perp orders plus 30 open Spot orders.
 
-Alpha Trading is intentionally excluded because the current Binance Agent OS MCP tool catalog does not expose authenticated Alpha order and cancellation tools. There is no API-key fallback.
+Alpha Trading is intentionally excluded because the current Binance Agent OS MCP
+tool catalog does not expose authenticated Alpha order and cancellation tools.
+There is no API-key fallback.
 
 ## Configuration
 
@@ -80,7 +95,7 @@ stops once flat. Optional venue: `binance-mm safe-exit spot` | `safe-exit perp`.
       scanner + market-maker strategy
                 |
                 v
-      Hermes plugin using ctx.call_mcp
+      any MCP client (Claude / GPT / Hermes / …)
                 |
                 v
       Binance Agent OS OAuth MCP
@@ -88,7 +103,11 @@ stops once flat. Optional venue: `binance-mm safe-exit spot` | `safe-exit perp`.
                 v
       Binance Agentic sub-account
 
-Public endpoints are only used for unauthenticated market data. The current Agent OS USD-M catalog does not expose all-market `bookTicker` and 24-hour `quoteVolume`, so these two scanner inputs use Binance's official public endpoints. Account, balance, position, open-order, order query, leverage, order placement, and cancellation actions use Agent OS MCP.
+Public endpoints are only used for unauthenticated market data. The current
+Agent OS USD-M catalog does not expose all-market `bookTicker` and 24-hour
+`quoteVolume`, so these two scanner inputs use Binance's official public
+endpoints. Account, balance, position, open-order, order query, leverage, order
+placement, and cancellation actions use Agent OS MCP.
 
 ## Agent OS tools used
 
@@ -110,102 +129,6 @@ Spot:
 - `spot.newOrder`
 - `spot.deleteOrder`
 
-## Installation
-
-Requirements:
-
-- Python 3.11+
-- `uv`
-- Hermes Agent
-- Binance account eligible for Agent OS
-
-Clone and install dependencies:
-
-    git clone https://github.com/ItzJulkar/binance-agent-OS.git
-    cd binance-agent-OS
-    uv sync --extra dev
-
-Connect Hermes to Binance Agent OS:
-
-    hermes mcp add binance --url https://agent.binance.com/mcp/agentic --auth oauth
-    hermes mcp test binance
-
-Binance opens its own authorization page. Login, 2FA, sub-account selection, and permission approval happen only on Binance. The project never receives those credentials.
-
-Install and authorize the Hermes plugin on Windows Git Bash:
-
-    cp -r hermes-plugin "$LOCALAPPDATA/hermes/plugins/binance-agent-os"
-    hermes plugins enable binance-agent-os
-    hermes config set plugins.entries.binance-agent-os.mcp_allowlist '["binance"]'
-
-Restart Hermes after installation.
-
-## Commands
-
-Check integration:
-
-    hermes binance-agent-os status
-
-Read Agent OS account state:
-
-    hermes binance-agent-os account
-    hermes binance-agent-os positions
-    hermes binance-agent-os orders
-    hermes binance-agent-os orders --symbol BTCUSDT
-
-Run only USD-M Perpetual:
-
-    hermes binance-agent-os run-perp --cycles 1 --quote USDT
-
-Run only Spot:
-
-    hermes binance-agent-os run-spot --cycles 1 --quote USDT
-
-Run Spot and Perp together:
-
-    hermes binance-agent-os run-both --cycles 1 --quote USDT
-
-USDC mode:
-
-    hermes binance-agent-os run-both --cycles 1 --quote USDC
-
-Continuous cycles:
-
-    hermes binance-agent-os run-both --cycles 20
-
-## Observe live — standalone dashboard (no AI agent needed)
-
-The trade dashboard is a **read-only, standalone viewer**. Anyone who clones the
-repo can run it directly — it does not require Hermes, Claude, or any MCP client.
-The bot writes activity to `logs/*.jsonl`; the dashboard tails that file and
-renders a live, color-coded terminal UI (scanned markets + spreads, open orders,
-positions, portfolio/PnL, buy/sell counts, activity log).
-
-Run a paper (demo) bot in one terminal:
-
-    binance-mm demo perp     # or: binance-mm demo spot
-
-Open a second terminal and start a **realtime orderbook terminal** — every
-eligible USDT-M perpetual (or spot) with live bid/ask/spread streamed from
-Binance's WebSocket (!bookTicker), plus the bot's equity/orders summary.
-Scroll with ↑/↓ (or w/s), PgUp/PgDn, Home/End; `q` quits:
-
-    binance-mm live perp     # or: binance-mm live spot
-
-There is also a richer two-venue dashboard (LIVE/DEMO toggle):
-
-    binance-mm watch          # ←/→ switches LIVE ⇄ DEMO, q quits
-
-Keys:  Left/Right arrow (or `l` / `d`) switch between LIVE and DEMO views
-       in `watch`. LIVE shows the Agent OS account stream (`~/.binance-mm/logs/live.jsonl`),
-       DEMO shows the paper stream (`~/.binance-mm/logs/demo.jsonl`).
-
-Note on LIVE mode: real order execution always runs through the Binance Agent OS
-OAuth MCP endpoint (`agent.binance.com/mcp/agentic`) — that is how this bot meets
-the Agent OS campaign's no-API-key requirement. So live runs are driven from an
-MCP-connected context (e.g. `hermes binance-agent-os run-perp`); the dashboard
-itself is independent of that connection.
-
 ## Terminal output
 
 The command prints separate prefixed activity for each market:
@@ -217,32 +140,21 @@ The command prints separate prefixed activity for each market:
 - confirmation count
 - cycle elapsed time
 
-This makes Spot and Perp activity distinguishable when `run-both` is used.
-
 ## Confirmation boundary
 
-Binance Agent OS requires confirmation for write actions. A live order or cancellation may block while waiting for Binance confirmation. Therefore:
+Binance Agent OS requires confirmation for write actions. A live order or
+cancellation may block while waiting for Binance confirmation. Therefore:
 
-- The 3-second value is an expiry/earliest refresh target, not a guarantee while confirmation is pending.
+- The refresh value is an expiry/earliest target, not a guarantee while
+  confirmation is pending.
 - The agent does not bypass confirmation using API credentials.
 - Start with one cycle and a low funded Agentic sub-account.
 - Never blindly retry a timed-out write without querying order state.
-
-## Paper visualization
-
-Paper mode uses live public market data and simulated orders, without authentication:
-
-    uv run binance-mm --environment paper
-    uv run binance-mm --environment paper --quote USDC
-
-Authenticated execution must use the Hermes Agent OS plugin.
 
 ## Verification
 
     uv run ruff check .
     uv run pytest -q
-    hermes plugins doctor binance-agent-os
-    hermes binance-agent-os --help
 
 ## Official references
 
