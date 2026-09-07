@@ -306,6 +306,10 @@ class Agent:
                             self.paper.fills.append(fill)
                             self.paper.orders.pop(order_id, None)
                             self._apply_fill(fill)
+                            # filled market order is closed — do NOT add to active
+                            continue
+                        # no book yet: keep as a resting order so it still closes
+                        # once a book appears (not silently dropped)
                 else:
                     raise RuntimeError("Authenticated orders must run through the Binance Agent OS plugin")
                 self.active[order_id] = order
