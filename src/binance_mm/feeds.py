@@ -58,13 +58,72 @@ class BookFeed:
     # -- thread body -------------------------------------------------------- #
 
     def _run(self) -> None:
+        # Try the WebSocket (8s handshake); if it can't connect (fstream
+        # blocked on some networks), fall back to REST polling so the
+        # dashboard still renders live spreads.
+        try:
+            self._connect()
+        except Exception as exc:  # noqa: BLE001 - WS unavailable
+            self.error = f"{type(exc).__name__}: {exc}"
+        if self._stop.is_set():
+            return
+        if not self.connected:
+            self._poll_rest()
+            return
+        # WS connected — keep it alive (reconnect on drop)
         while not self._stop.is_set():
             try:
                 self._connect()
-            except Exception as exc:  # noqa: BLE001 - keep reconnecting
+            except Exception as exc:  # noqa: BLE001
                 self.error = f"{type(exc).__name__}: {exc}"
+                self.connected = False
             if self._stop.wait(self.reconnect_s):
                 break
+            if not self.connected:
+                self._poll_rest()
+                return
+
+    # -- REST fallback (WebSocket is blocked on some networks) ------------- #
+
+    def _poll_rest(self) -> None:
+        """Poll the public bookTicker REST endpoint (all markets in one call)
+        when the WebSocket cannot connect. Used by the dashboard so spreads
+        still render on networks that block fstream.binance.com."""
+        import httpx
+
+        url = ("https://fapi.binance.com/fapi/v1/ticker/bookTicker"
+               if self.venue == "perp"
+               else "https://api.binance.com/api/v3/ticker/bookTicker")
+        with httpx.Client(timeout=10) as client:
+            while not self._stop.is_set():
+                try:
+                    r = client.get(url)
+                    r.raise_for_status()
+                    rows = r.json()
+                    for row in rows:
+                        sym = row.get("s") or row.get("symbol")
+                        if sym not in self.symbols:
+                            continue
+                        try:
+                            bidf = float(row.get("b") or row.get("bidPrice"))
+                            askf = float(row.get("a") or row.get("askPrice"))
+                        except (TypeError, ValueError):
+                            continue
+                        if bidf <= 0 or askf <= 0:
+                            continue
+                        spread = (askf - bidf) / ((bidf + askf) / 2) * 100
+                        with self._lock:
+                            self._books[sym] = {
+                                "bid": bidf, "ask": askf, "spread": spread,
+                                "ts": time.time(),
+                            }
+                    self.connected = True
+                    self.error = None
+                except Exception as exc:  # noqa: BLE001
+                    self.error = f"{type(exc).__name__}: {exc}"
+                    self.connected = False
+                if self._stop.wait(1.0):
+                    break
 
     def _connect(self) -> None:
         async def _inner() -> None:
