@@ -4,6 +4,7 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
+
 def _project_root() -> Path:
     installed = Path(__file__).resolve().parent
     home_repo = Path.home() / "binance-agent-market-maker"
@@ -122,8 +123,8 @@ def register(ctx):
                      od=od, pos=pos, bal=bal, pnl=0.0, mkts=mkts)
 
     async def run_cycles(args, executor, kinds):
+        from binance_mm.paths import live_log
         from binance_mm.watch import WatchLog
-        from binance_mm.paths import demo_log, live_log
 
         log = WatchLog(live_log())
         clients = {
@@ -174,8 +175,8 @@ def register(ctx):
         }
         run_map = {"run-perp": ("perp",), "run-spot": ("spot",), "run-both": ("perp", "spot")}
         if args.action == "watch":
-            from binance_mm.watch import run_watch
             from binance_mm.paths import demo_log, live_log
+            from binance_mm.watch import run_watch
 
             run_watch(live_path=live_log(), demo_path=demo_log(), start="live")
         elif args.action == "live":
