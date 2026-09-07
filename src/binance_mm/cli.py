@@ -15,13 +15,6 @@ from rich.text import Text
 from .binance import BinanceClient, parse_markets
 from .models import Book, Order, Side
 
-# ---- 3D branding banner (3D-ASCII font: isometric depth faces) ----
-# Art lives in banner.txt (avoids backslash-escaping bugs); vertical gradient
-# applied at render time.
-_BANNER_GRADIENT = [
-    "bright_cyan", "cyan", "deep_sky_blue3", "dodger_blue3", "steel_blue3",
-    "slate_blue3", "grey50",
-]
 from .paper import PaperBroker
 from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
@@ -163,7 +156,7 @@ class Agent:
         mid.append("[bold white]▌ OPEN ORDERS[/]")
         mid.append("[dim]  SYMBOL        SIDE  QTY        PRICE       NOTIONAL[/]")
         if self.active:
-            for oid, o in list(self.active.items()):
+            for oid, o in list(self.active.items())[:14]:
                 sst = "bright_green" if o.side.value == "BUY" else "bright_red"
                 nv = float(o.price) * float(o.quantity)
                 # fixed-width fields; pad each so columns never touch
@@ -176,6 +169,8 @@ class Agent:
                     f"  [white]{sym}[/][{sst}]{side}[/]"
                     f"[yellow]{qty}[/][white]{px}[/][magenta]{notl}[/]"
                 )
+            if len(self.active) > 14:
+                mid.append(f"  [dim]… +{len(self.active) - 14} more[/]")
         else:
             mid.append("  [dim](none)[/]")
         mid.append("")
@@ -190,30 +185,14 @@ class Agent:
         mid.append(f"  open      [white]{len(self.active)}[/]")
         mid.append(f"  errors    [red]{self.stats.errors}[/]")
         mid.append("")
-        # ---- 3D branding banner (3D-ASCII isometric + vertical gradient) ----
-        # Push the banner down so it sits mid-screen (not at the very bottom)
-        # even when the left trade-tape column is long.
-        _by = [" ___", "| _ )_  _", "| _ \\ || |", "|___/\\_, |", "     |__/"]
-        _jul = Path(__file__).with_name("banner.txt").read_text().splitlines()
-        _bw = max(len(l) for l in _jul)
-        _c = _bw // 2
-        _banner_h = len(_by) + 1 + len(_jul)
-        # leave room below for the banner + a little margin, so it never runs
-        # off the bottom of the screen
+        # ---- branding: simple large text "By JULKAR.ETH" (cyan gradient) ----
+        _banner_h = 3
         _pad_top = max(0, body_rows - len(mid) - _banner_h - 2)
         for _ in range(_pad_top):
             mid.append(Text(""))
-        for _i, _line in enumerate(_by):
-            _w = len(_line)
-            _pad = max(0, _c - _w // 2)
-            _col = _BANNER_GRADIENT[min(_i, len(_BANNER_GRADIENT) - 1)]
-            mid.append(Text("  " + " " * _pad + _line, style=f"dim {_col}"))
+        mid.append(Text("  By", style="dim bright_cyan"))
+        mid.append(Text("  JULKAR.ETH", style="bold bright_cyan"))
         mid.append(Text(""))
-        for _i, _line in enumerate(_jul):
-            _w = len(_line)
-            _pad = max(0, _c - _w // 2)
-            _col = _BANNER_GRADIENT[min(_i, len(_BANNER_GRADIENT) - 1)]
-            mid.append(Text("  " + " " * _pad + _line, style=_col))
 
         # ---------- RIGHT pool: live orderbook spreads ----------
         spreads: list[tuple[str, Decimal, Decimal, float]] = []
