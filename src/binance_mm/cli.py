@@ -106,55 +106,58 @@ class Agent:
             (f"      {clock} UTC", "white on bright_blue"),
         )
 
-        # ---------- left panel: live orderbook ----------
-        rows = self.feed.snapshot() if self.feed else []
-        rows.sort(key=lambda r: -r["spread"])
-        left_lines = [f"  [bold white]LIVE ORDERBOOK[/]  [dim]{self.eligible_count} symbols · spread %[/]"]
-        if rows:
-            for r in rows[:40]:
-                spread = r["spread"]
-                color = ("bright_green" if spread >= 0.02
-                         else "yellow" if spread >= 0.01 else "bright_red")
-                left_lines.append(
-                    f"  {r['sym']:<13} [white]{r['bid']:>11.6g} {r['ask']:>11.6g}[/]"
-                    f"   [{color}]{spread:>6.4f}%[/]"
-                )
-        else:
-            left_lines.append("  connecting to live orderbook…")
-        left_txt = Text.from_markup("\n".join(left_lines), emoji=False)
-        left_panel = Panel(left_txt, border_style="bright_blue",
-                           title="[bold]MARKETS[/]",
-                           subtitle="[dim]highest spread first[/]", padding=(0, 1))
-
-        # ---------- right panel: fills + trade tape + portfolio ----------
-        right_lines = ["  [bold white]TRADE TAPE[/]"]
-        for ev in list(self.stats.fill_events)[-6:]:
-            right_lines.append("  [bright_cyan]FILL[/]  " + ev)
-        for ev in list(self.stats.events)[-10:]:
+        # ---------- LEFT: fills + trade tape (executed) ----------
+        left_lines = ["  [bold white]FILLS & TRADES[/]   [dim]latest first[/]"]
+        for ev in list(self.stats.fill_events)[-10:][::-1]:
+            left_lines.append("  [bright_cyan]FILL[/]  " + ev)
+        for ev in list(self.stats.events)[-14:][::-1]:
             tag, _, rest = ev.partition(" ")
             if tag.startswith("QUOTE"):
                 style = "bright_green" if " BUY " in ev else "bright_red"
                 mark = "▲ BUY" if " BUY " in ev else "▼ SELL"
-                right_lines.append(f"  [{style}]{mark}[/] " + rest)
+                left_lines.append(f"  [{style}]{mark}[/] {rest}")
             elif tag == "CANCEL":
-                right_lines.append("  [yellow]CANCEL[/] " + rest)
+                left_lines.append("  [yellow]CANCEL[/] " + rest)
             else:
-                right_lines.append("  " + ev)
-        right_lines.append("")
-        right_lines.append("  [bold white]PORTFOLIO[/]")
-        right_lines.append("  EQUITY  [bold]$" + f"{equity:,.2f}[/]")
-        if self.inventory._net:
-            for sym, net in list(self.inventory._net.items())[:8]:
-                style = "bright_green" if net >= 0 else "bright_red"
-                right_lines.append(f"  {sym:<12} [{style}]{net:+.4g}[/]")
+                left_lines.append("  " + ev)
+        left_txt = Text.from_markup("\n".join(left_lines), emoji=False)
+        left_panel = Panel(left_txt, border_style="bright_green",
+                           title="[bold]EXECUTED / TRADES[/]", padding=(0, 1))
+
+        # ---------- RIGHT: open orders (live quotes) ----------
+        right_lines = ["  [dim]sym              side   qty     price     notional[/]"]
+        if self.active:
+            for oid, order in list(self.active.items()):
+                side = order.side.value
+                sstyle = "bright_green" if side == "BUY" else "bright_red"
+                right_lines.append(
+                    f"  [white]{order.symbol:<14}[/] [{sstyle}]{side:<4}[/]"
+                    f" [yellow]{float(order.quantity):>8.4g}[/]"
+                    f" [white]{float(order.price):>10.6g}[/]"
+                    f" [magenta]{float(order.price)*float(order.quantity):>12,.2f}[/]"
+                )
         else:
-            right_lines.append("  (no open positions)")
+            right_lines.append("  (no open orders)")
         right_txt = Text.from_markup("\n".join(right_lines), emoji=False)
-        right_panel = Panel(right_txt, border_style="bright_green",
-                            title="[bold]ACTIVITY[/]", padding=(0, 1))
+        right_panel = Panel(right_txt, border_style="bright_blue",
+                            title=f"[bold]OPEN ORDERS[/]  [dim]{len(self.active)} live[/]",
+                            padding=(0, 1))
 
         columns = Columns([left_panel, right_panel], equal=True, expand=True)
-        return Group(head, columns)
+
+        # ---------- bottom: portfolio band ----------
+        pf = [f"[bold]EQUITY[/]  [green]${equity:,.2f}[/]"]
+        if self.inventory._net:
+            for sym, net in list(self.inventory._net.items())[:10]:
+                style = "bright_green" if net >= 0 else "bright_red"
+                pf.append(f"  {sym:<11} [{style}]{net:+.4g}[/]")
+        else:
+            pf.append("  no open positions")
+        pf_txt = Text.from_markup("   ".join(pf), emoji=False)
+        portfolio_panel = Panel(pf_txt, border_style="yellow",
+                                title="[bold]PORTFOLIO[/]", padding=(0, 1))
+
+        return Group(head, columns, portfolio_panel)
 
 
     async def cancel_all(self) -> None:
