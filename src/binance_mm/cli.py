@@ -238,7 +238,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
     p.add_argument("--min-volume", type=Decimal, default=Decimal(10000000))
     p.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))
-    p.add_argument("--refresh", type=float, default=3.0)
+    p.add_argument("--refresh", type=float, default=1.0)
     p.add_argument("--max-orders", type=int, default=30)
     p.add_argument("--margin-fraction", type=Decimal, default=Decimal("0.01"))
     p.add_argument("--leverage", type=int, default=2)
@@ -252,17 +252,27 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def _run_bot(args) -> None:
+    agent = Agent(args)
+    signal.signal(signal.SIGINT, agent.stop)
+    signal.signal(signal.SIGTERM, agent.stop)
+    asyncio.run(agent.run())
+
+
 def main() -> None:
     import sys
 
-    # `binance-mm watch` runs the read-only dashboard in its own terminal tab.
-    if len(sys.argv) > 1 and sys.argv[1] == "watch":
-        root = Path(__file__).resolve().parents[2]
-        argv = sys.argv[2:]
+    argv = sys.argv[1:]
+    root = Path(__file__).resolve().parents[2]
+    logs = root / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+
+    # --- subcommand dispatch (simple for public users) -------------------- #
+    if argv and argv[0] == "watch":
         start = "live"
-        live = root / "logs" / "live.jsonl"
-        demo = root / "logs" / "demo.jsonl"
-        i = 0
+        live = logs / "live.jsonl"
+        demo = logs / "demo.jsonl"
+        i = 1
         while i < len(argv):
             if argv[i] == "--live" and i + 1 < len(argv):
                 live = Path(argv[i + 1]); i += 2
@@ -277,25 +287,33 @@ def main() -> None:
         run_watch(live_path=live, demo_path=demo, start=start)
         return
 
-    # `binance-mm live` = realtime orderbook market terminal (all markets).
-    if len(sys.argv) > 1 and sys.argv[1] == "live":
-        root = Path(__file__).resolve().parents[2]
-        log = root / "logs" / "demo.jsonl"
-        argv = sys.argv[2:]
-        for i, a in enumerate(argv):
-            if a == "--log" and i + 1 < len(argv):
-                log = Path(argv[i + 1])
+    if argv and argv[0] == "live":
+        log = logs / "demo.jsonl"
+        i = 1
+        while i < len(argv):
+            if argv[i] == "--log" and i + 1 < len(argv):
+                log = Path(argv[i + 1]); i += 2
+            else:
+                i += 1
         from .live import run_live
 
         run_live(log)
         return
 
-    args = parser().parse_args()
+    # `demo` / bare `binance-mm` => paper (demo) bot, sensible defaults.
+    if argv and argv[0] in ("demo", "paper"):
+        argv = argv[1:]
+    elif argv and argv[0].startswith("-"):
+        pass  # legacy: bare flags only
+    else:
+        argv = []  # bare `binance-mm` == demo
 
-    agent = Agent(args)
-    signal.signal(signal.SIGINT, agent.stop)
-    signal.signal(signal.SIGTERM, agent.stop)
-    asyncio.run(agent.run())
+    sys.argv = [sys.argv[0]] + argv
+    args = parser().parse_args()
+    if args.environment == "agent-os":
+        args.environment = "paper"
+        args.log_file = str(logs / "demo.jsonl")
+    _run_bot(args)
 
 
 if __name__ == "__main__":

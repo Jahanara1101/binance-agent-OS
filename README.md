@@ -4,6 +4,41 @@ A Binance Agent OS Track A project for scanning and providing maker liquidity on
 
 All authenticated reads and writes use the official Binance Agent OS OAuth MCP server. This repository does not accept Binance API keys or secrets and contains no authenticated REST-signing fallback.
 
+## Quick start (demo, no real money, no AI needed)
+
+1. Install [uv](https://docs.astral.sh/uv/#installation) (one command).
+2. Clone and enter the repo:
+   ```
+   git clone https://github.com/ItzJulkar/binance-agent-OS
+   cd binance-agent-OS
+   uv sync
+   ```
+3. Run the **demo bot** (paper trades, real market data, sensible defaults baked in):
+   ```
+   uv run binance-mm demo
+   ```
+   or on Windows just double-click **`demo.bat`**. Stop with `Ctrl+C`.
+
+4. In a **second terminal** (inside the repo), open the **realtime orderbook
+   terminal** — live bid/ask/spread for every eligible market, streamed over
+   Binance WebSocket, plus the bot's equity/order summary:
+   ```
+   uv run binance-mm live
+   ```
+   Scroll: ↑/↓ or `w`/`s`, PgUp/PgDn, Home/End. Quit: `q`.
+
+   Or open the two-venue dashboard (`watch`): arrows switch LIVE ⇄ DEMO, `q` quits.
+   ```
+   uv run binance-mm watch
+   ```
+
+That is all you need to see it work. No flags, no API keys. `binance-mm demo`,
+`binance-mm live` and `binance-mm watch` are the three commands.
+
+Live real-money execution goes through the Binance Agent OS OAuth MCP
+connection (see "Installation / live" below) and is driven from an MCP client;
+everything in `demo` / `live` / `watch` runs standalone.
+
 ## Features
 
 | Feature | USD-M Perpetual | Spot |
@@ -13,7 +48,7 @@ All authenticated reads and writes use the official Binance Agent OS OAuth MCP s
 | Optional USDC markets | Yes | Yes |
 | Minimum 24h quote volume | $10M | $10M |
 | Minimum entry spread | 0.02% | 0.02% |
-| Refresh/expiry target | 3 seconds | 3 seconds |
+| Refresh/expiry target | 1 second | 1 second |
 | Maximum simultaneously open orders | 30 | 30 |
 | Allocation | 1% of Perp equity | 1% of Spot quote balance |
 | Leverage | 2x | Not applicable |
