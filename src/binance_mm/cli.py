@@ -196,8 +196,10 @@ class Agent:
         if spreads:
             for sym, bid, ask, sp in spreads[: max(1, body_rows - 2)]:
                 scol = "bright_green" if sp < 0.05 else ("yellow" if sp < 0.1 else "bright_red")
+                symw = Text(sym).cell_len
+                pad = max(0, 12 - symw)
                 right.append(
-                    f"  [white]{sym:<12}[/] [dim]{float(bid):>9.6g}[/]"
+                    f"  [white]{sym}{' ' * pad}[/] [dim]{float(bid):>9.6g}[/]"
                     f" [dim]{float(ask):>9.6g}[/] [{scol}]{sp:>7.4f}%[/]"
                 )
         else:
@@ -206,7 +208,7 @@ class Agent:
         # ---------- compose full-height rows, three columns ----------
         gap = 2
         lw = max(20, int((cw - 2 * gap) * 0.30))
-        rw = max(20, min(43, int((cw - 2 * gap) * 0.30)))
+        rw = max(20, min(49, int((cw - 2 * gap) * 0.30)))
         mw = max(20, (cw - 2 * gap) - lw - rw)
         out = Text()
         out.append(hdr_row)
