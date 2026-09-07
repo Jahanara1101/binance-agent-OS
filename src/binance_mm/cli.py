@@ -191,10 +191,18 @@ class Agent:
         mid.append(f"  errors    [red]{self.stats.errors}[/]")
         mid.append("")
         # ---- 3D branding banner (3D-ASCII isometric + vertical gradient) ----
+        # Push the banner down so it sits mid-screen (not at the very bottom)
+        # even when the left trade-tape column is long.
         _by = [" ___", "| _ )_  _", "| _ \\ || |", "|___/\\_, |", "     |__/"]
         _jul = Path(__file__).with_name("banner.txt").read_text().splitlines()
         _bw = max(len(l) for l in _jul)
         _c = _bw // 2
+        _banner_h = len(_by) + 1 + len(_jul)
+        # leave room below for the banner + a little margin, so it never runs
+        # off the bottom of the screen
+        _pad_top = max(0, body_rows - len(mid) - _banner_h - 2)
+        for _ in range(_pad_top):
+            mid.append(Text(""))
         for _i, _line in enumerate(_by):
             _w = len(_line)
             _pad = max(0, _c - _w // 2)
