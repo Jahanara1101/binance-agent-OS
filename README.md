@@ -47,10 +47,6 @@ everything in `demo` / `live` / `watch` runs standalone.
 | Binance Agent OS OAuth execution | Yes | Yes |
 | USDT default | Yes | Yes |
 | Optional USDC markets | Yes | Yes |
-| Minimum 24h quote volume | $10M | $1M |
-| Minimum entry spread | 0.02% | 0.02% |
-| Refresh/expiry target | 0.2 second | 0.2 second |
-| Maximum simultaneously open orders | 30 | 30 |
 | Portfolio allocation per leg | 2% | 2% |
 | Leverage | 5x | Not applicable |
 | Normal mode | Yes | Yes |
@@ -62,14 +58,11 @@ Alpha Trading is intentionally excluded because the current Binance Agent OS MCP
 ## Configuration
 
 The bot is a maker liquidity agent on Binance Spot and USD-M Perpetual. Public
-configuration (the internal selection/exit algorithm is kept private):
+configuration is limited to the two parameters that users most need to tune
+(internal selection, sizing and exit thresholds are kept private):
 
 - Portfolio allocation per leg: **2%** (`--margin-fraction 0.02`)
 - Futures leverage: **5x** (`--leverage 5`)
-- Minimum entry spread: 0.02% (`--min-spread`)
-- Maximum open orders: 30 (`--max-orders`)
-- Refresh cadence: 0.2 second (`--refresh`)
-- Minimum 24h quote volume: perp $10M, spot $1M (`--min-volume`)
 
 Safe-exit (`binance-mm safe-exit`): cancels all open quotes, hedges any
 inventory out via maker orders on the opposite side, places no new entries, and
@@ -178,11 +171,7 @@ USDC mode:
 
 Continuous cycles:
 
-    hermes binance-agent-os run-both --cycles 20 --refresh 3
-
-Custom thresholds:
-
-    hermes binance-agent-os run-both --min-volume 20000000 --min-spread 0.0003 --max-orders 30
+    hermes binance-agent-os run-both --cycles 20
 
 ## Observe live — standalone dashboard (no AI agent needed)
 
