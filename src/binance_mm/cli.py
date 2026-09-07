@@ -200,9 +200,10 @@ class Agent:
             right.append("  [dim](no book data)[/]")
 
         # ---------- compose full-height rows, three columns ----------
-        lw = int(cw * 0.42)
-        mw = int(cw * 0.32)
-        rw = cw - lw - mw
+        gap = 2
+        lw = max(20, int((cw - 2 * gap) * 0.42))
+        mw = max(20, int((cw - 2 * gap) * 0.32))
+        rw = max(20, (cw - 2 * gap) - lw - mw)
         out = Text()
         out.append(hdr_row)
         out.append("\n")
@@ -213,11 +214,20 @@ class Agent:
             lt = Text.from_markup(l, emoji=False)
             mt = Text.from_markup(m, emoji=False)
             rt = Text.from_markup(r, emoji=False)
+            # clip each column to its width so nothing overflows into the next
+            if lt.cell_len > lw:
+                lt = lt[: lw - 1] + Text("…")
+            if mt.cell_len > mw:
+                mt = mt[: mw - 1] + Text("…")
+            if rt.cell_len > rw:
+                rt = rt[: rw - 1] + Text("…")
             row = Text()
             row.append(lt)
             row.append(" " * max(0, lw - lt.cell_len))
+            row.append(" " * gap)
             row.append(mt)
             row.append(" " * max(0, mw - mt.cell_len))
+            row.append(" " * gap)
             row.append(rt)
             row.append(" " * max(0, rw - rt.cell_len))
             out.append(row)
