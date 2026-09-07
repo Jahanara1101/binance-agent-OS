@@ -45,7 +45,6 @@ def _banner_text(lines: list[str], gradient: list[str]) -> Text:
     (bright at top, dark at bottom) for depth."""
     w = max(len(l) for l in lines)
     lines = [l.ljust(w) for l in lines]
-    h = len(lines)
     out = Text()
     for i, line in enumerate(lines):
         color = gradient[min(i, len(gradient) - 1)]
