@@ -181,6 +181,28 @@ class Agent:
         mid.append(f"  fills     [cyan]{self.stats.fills}[/]")
         mid.append(f"  open      [white]{len(self.active)}[/]")
         mid.append(f"  errors    [red]{self.stats.errors}[/]")
+        mid.append("")
+        # ---- 3D branding banner (centered in the middle column) ----
+        _by = ["___      ", "| _ )_  _ ", "| _ \\ || |", "|___/\\_, |", "     |__/ "]
+        _jul = [
+            "**          ** **                                   **   **     ",
+            "     /**         /**/**                                  /**  /**     ",
+            "     /** **   ** /**/**  **  ******   ******     *****  ******/**     ",
+            "     /**/**  /** /**/** **  //////** //**//*    **///**///**/ /****** ",
+            "     /**/**  /** /**/****    *******  /** /    /*******  /**  /**///**",
+            " **  /**/**  /** /**/**/**  **////**  /**    **/**////   /**  /**  /**",
+            "//***** //****** ***/**//**//********/***   /**//******  //** /**  /**",
+            " /////   ////// /// //  //  //////// ///    //  //////    //  //   //",
+        ]
+        _bw = max(len(l.rstrip()) for l in _jul)  # banner width
+        _c = _bw // 2  # center column
+        for _l in _by:
+            _pad = max(0, _c - len(_l.rstrip()) // 2)
+            mid.append(f"  [dim]{' ' * _pad}{_l}[/]")
+        mid.append("")
+        for _l in _jul:
+            _pad = max(0, _c - len(_l.rstrip()) // 2)
+            mid.append(f"  [bold bright_cyan]{' ' * _pad}{_l}[/]")
 
         # ---------- RIGHT pool: live orderbook spreads ----------
         spreads: list[tuple[str, Decimal, Decimal, float]] = []
