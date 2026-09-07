@@ -152,18 +152,21 @@ class Agent:
 
         # ---------- MIDDLE pool: open orders + portfolio + stats ----------
         mid: list[str] = []
+        # column widths must match the data rows below exactly
+        _w_sym, _w_side, _w_qty, _w_px, _w_nl = 13, 4, 10, 11, 12
         mid.append("[bold white]▌ OPEN ORDERS[/]")
-        mid.append("[dim]  SYMBOL        SIDE  QTY        PRICE       NOTIONAL[/]")
+        _h = ("  " + f"{'SYMBOL':<{_w_sym}}" + f"{'SIDE':<{_w_side}}"
+              + f"{'QTY':>{_w_qty}}" + f"{'PRICE':>{_w_px}}" + f"{'NOTIONAL':>{_w_nl}}")
+        mid.append(f"[dim]{_h}[/]")
         if self.active:
             for oid, o in list(self.active.items()):
                 sst = "bright_green" if o.side.value == "BUY" else "bright_red"
                 nv = float(o.price) * float(o.quantity)
-                # fixed-width fields; pad each so columns never touch
-                sym = f"{o.symbol:<13}"[:13]
-                side = f"{o.side.value:<4}"[:4]
-                qty = f"{float(o.quantity):>10.4g}"
-                px = f"{float(o.price):>11.6g}"
-                notl = f"{nv:>12,.0f}"
+                sym = f"{o.symbol:<{_w_sym}}"[:_w_sym]
+                side = f"{o.side.value:<{_w_side}}"[:_w_side]
+                qty = f"{float(o.quantity):>{_w_qty}.4g}"
+                px = f"{float(o.price):>{_w_px}.6g}"
+                notl = f"{nv:>{_w_nl},.0f}"
                 mid.append(
                     f"  [white]{sym}[/][{sst}]{side}[/]"
                     f"[yellow]{qty}[/][white]{px}[/][magenta]{notl}[/]"
@@ -193,15 +196,18 @@ class Agent:
         spreads.sort(key=lambda x: x[3], reverse=True)
         right: list[str] = []
         right.append("[bold white]▌ LIVE SPREADS[/]")
-        right.append("[dim]  SYMBOL        BID       ASK     SPREAD%[/]")
+        _ws, _wb, _wa, _wsp = 12, 9, 9, 7
+        _hs = ("  " + f"{'SYMBOL':<{_ws}}" + " " + f"{'BID':>{_wb}}" + " "
+               + f"{'ASK':>{_wa}}" + " " + f"{'SPREAD%':>{_wsp}}")
+        right.append(f"[dim]{_hs}[/]")
         if spreads:
             for sym, bid, ask, sp in spreads[: max(1, body_rows - 2)]:
                 scol = "bright_green" if sp < 0.05 else ("yellow" if sp < 0.1 else "bright_red")
                 symw = Text(sym).cell_len
-                pad = max(0, 12 - symw)
+                pad = max(0, _ws - symw)
                 right.append(
-                    f"  [white]{sym}{' ' * pad}[/] [dim]{float(bid):>9.6g}[/]"
-                    f" [dim]{float(ask):>9.6g}[/] [{scol}]{sp:>7.4f}%[/]"
+                    f"  [white]{sym}{' ' * pad}[/] [dim]{float(bid):>{_wb}.6g}[/]"
+                    f" [dim]{float(ask):>{_wa}.6g}[/] [{scol}]{sp:>{_wsp}.4f}%[/]"
                 )
         else:
             right.append("  [dim](no book data)[/]")
