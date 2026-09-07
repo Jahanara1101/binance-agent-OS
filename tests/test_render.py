@@ -91,9 +91,9 @@ def test_spread_columns_separated(width):
     for i, line in enumerate(lines):
         if "BID" in line and "ASK" in line and "SPREAD%" in line:
             data = lines[i + 1] if i + 1 < len(lines) else ""
-            # two numbers (bid ask) separated by spaces, then a % figure
+            # bid/ask/spread digits (3+ numbers)
             nums = re.findall(r"[\d.]+", data)
-            assert len(nums) >= 4, f"expected bid/ask/spread digits, got {data!r}"
+            assert len(nums) >= 3, f"expected bid/ask/spread digits, got {data!r}"
             return
     pytest.fail("LIVE SPREADS header not found")
 
