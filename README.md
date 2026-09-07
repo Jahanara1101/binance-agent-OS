@@ -15,10 +15,11 @@ All authenticated reads and writes use the official Binance Agent OS OAuth MCP s
    ```
 3. Now run `binance-mm` **from any folder — no `cd` needed**:
    - `binance-mm demo perp` → paper perp bot (USDT-M futures): real market data, simulated fills.
-   - `binance-mm demo spot` → paper spot bot (no-naked-sell, 1% of quote per BUY).
+   - `binance-mm demo spot` → paper spot bot (no-naked-sell, 2% of quote per BUY).
    - `binance-mm live perp` → realtime perp orderbook (every market's spread).
    - `binance-mm live spot` → realtime spot orderbook.
    - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO).
+   - `binance-mm safe-exit` → cancel opens, hedge inventory out via maker, no new entries, stop when flat.
 
    (There is no bare `binance-mm demo` — always pick a venue.)
 
@@ -46,47 +47,33 @@ everything in `demo` / `live` / `watch` runs standalone.
 | Binance Agent OS OAuth execution | Yes | Yes |
 | USDT default | Yes | Yes |
 | Optional USDC markets | Yes | Yes |
-| Minimum 24h quote volume | $10M | $10M |
+| Minimum 24h quote volume | $10M | $1M |
 | Minimum entry spread | 0.02% | 0.02% |
 | Refresh/expiry target | 1 second | 1 second |
 | Maximum simultaneously open orders | 30 | 30 |
-| Allocation | 1% of Perp equity | 1% of Spot quote balance |
-| Leverage | 2x | Not applicable |
+| Portfolio allocation per leg | 2% | 2% |
+| Leverage | 5x | Not applicable |
 | Normal mode | Yes | Yes |
 
 Spot and Perp limits are independent because the balances are separate. Running both can therefore allow up to 30 open Perp orders plus 30 open Spot orders.
 
 Alpha Trading is intentionally excluded because the current Binance Agent OS MCP tool catalog does not expose authenticated Alpha order and cancellation tools. There is no API-key fallback.
 
-## Strategy
+## Configuration
 
-1. Scan all trading pairs for the selected market and quote asset.
-2. Skip pairs below $10M rolling 24-hour quote volume.
-3. Calculate `(best ask - best bid) / midpoint`.
-4. Propose maker liquidity when spread is at least 0.02%.
-5. Cancel or refresh bot-owned maker orders after 1 second.
+The bot is a maker liquidity agent on Binance Spot and USD-M Perpetual. Public
+configuration (the internal selection/exit algorithm is kept private):
 
-Perpetual sizing:
+- Portfolio allocation per leg: **2%** (`--margin-fraction 0.02`)
+- Futures leverage: **5x** (`--leverage 5`)
+- Minimum entry spread: 0.02% (`--min-spread`)
+- Maximum open orders: 30 (`--max-orders`)
+- Refresh cadence: 1 second (`--refresh`)
+- Minimum 24h quote volume: perp $10M, spot $1M (`--min-volume`)
 
-- Total proposed margin across open Perp entry orders: 1% of Perp equity
-- Leverage: 2x
-- Maker order: `LIMIT` with `GTX`
-- Maximum open Perp orders: 30
-
-Spot sizing:
-
-- Total proposed BUY allocation: 1% of available Spot quote balance
-- Maker order: `LIMIT_MAKER`
-- No naked shorting: without base-token inventory, the agent does not submit a SELL
-- Maximum open Spot orders: 30
-
-Fill/inventory policy:
-
-1. Cancel the bot-owned sibling quote through Agent OS.
-2. Stop new exposure on that symbol.
-3. Place an opposite maker exit through Agent OS.
-4. Refresh the exit after 3 seconds even if current spread is below 0.02%.
-5. Resume new entries only after Agent OS account/position data confirms inventory is flat.
+Safe-exit (`binance-mm safe-exit`): cancels all open quotes, hedges any
+inventory out via maker orders on the opposite side, places no new entries, and
+stops once flat. Optional venue: `binance-mm safe-exit spot` | `safe-exit perp`.
 
 ## Architecture
 

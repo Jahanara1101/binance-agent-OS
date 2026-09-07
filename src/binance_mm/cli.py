@@ -319,6 +319,41 @@ class Agent:
                                     )
                     await self.cancel_all()
                     available = max(0, self.args.max_orders - len(self.active))
+                    exit_only = bool(getattr(self.args, "exit_only", False))
+                    if exit_only:
+                        # SAFE-EXIT: cancel all opens (done above), hedge any
+                        # inventory out via maker, place NO new entries, and
+                        # stop once flat.
+                        exits = []
+                        if self.venue == "spot":
+                            for market in self.markets:
+                                book = books.get(market.symbol)
+                                if not book:
+                                    continue
+                                amt = self.inventory._net.get(market.symbol, Decimal(0))
+                                if amt and abs(amt) >= market.min_qty:
+                                    side = Side.SELL if amt > 0 else Side.BUY
+                                    price = book.ask if side is Side.SELL else book.bid
+                                    exits.append(Order(market.symbol, side, price,
+                                                      abs(amt), reduce_only=True))
+                        else:
+                            exits = [
+                                exit_order
+                                for market in self.markets
+                                if market.symbol in books
+                                and (exit_order := self.inventory.exit_order(market, books[market.symbol])) is not None
+                            ]
+                        await self.place_orders(exits[:available])
+                        if not exits and not self.active:
+                            # flat and nothing open -> exit is complete
+                            print("\n[SAFE-EXIT] positions flat, all orders closed. Done.", flush=True)
+                            self.running = False
+                            break
+                        self.stats.cycles += 1
+                        self._emit_snapshot(books)
+                        live.update(self.render())
+                        await asyncio.sleep(max(0.05, self.args.refresh - (time.monotonic() - started)))
+                        continue
                     if self.venue == "spot":
                         from .paper_spot import propose_spot_orders
 
@@ -371,8 +406,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))
     p.add_argument("--refresh", type=float, default=1.0)
     p.add_argument("--max-orders", type=int, default=30)
-    p.add_argument("--margin-fraction", type=Decimal, default=Decimal("0.01"))
-    p.add_argument("--leverage", type=int, default=2)
+    p.add_argument("--margin-fraction", type=Decimal, default=Decimal("0.02"),
+                   help="fraction of portfolio/equity allocated per leg (default 2%)")
+    p.add_argument("--leverage", type=int, default=5, help="futures leverage (default 5x)")
+    p.add_argument("--exit-only", action="store_true",
+                   help="safe-exit: cancel opens, hedge inventory out via maker, place no new entries")
     p.add_argument("--paper-equity", type=Decimal, default=Decimal(10000))
     p.add_argument(
         "--log-file",
@@ -429,6 +467,28 @@ def main() -> None:
         from .live import run_live
 
         run_live(log, venue=venue)
+        return
+
+    # `binance-mm safe-exit` => run the bot in exit-only mode: cancel all open
+    # quotes, hedge any inventory out via maker orders, place no new entries,
+    # and stop once flat. Optional venue: `safe-exit spot` / `safe-exit perp`.
+    if argv and argv[0] == "safe-exit":
+        venue = "perp"
+        rest = argv[1:]
+        if rest and rest[0] in ("spot", "perp"):
+            venue = rest[0]
+            rest = rest[1:]
+        sys.argv = [sys.argv[0]] + rest + ["--exit-only"]
+        args = parser().parse_args()
+        args.venue = venue
+        args.environment = "paper"
+        if args.min_volume is None:
+            args.min_volume = Decimal(1000000) if venue == "spot" else Decimal(10000000)
+        args.log_file = str(demo_log() if venue == "perp"
+                            else Path(str(demo_log()).replace("demo.jsonl", "demo-spot.jsonl")))
+        print(f"[SAFE-EXIT] {venue.upper()} — cancelling opens, hedging inventory via maker, no new entries.",
+              flush=True)
+        _run_bot(args)
         return
 
     # `binance-mm demo` (bare) is intentionally NOT a shortcut anymore.
