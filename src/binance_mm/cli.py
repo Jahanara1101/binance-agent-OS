@@ -277,6 +277,19 @@ def main() -> None:
         run_watch(live_path=live, demo_path=demo, start=start)
         return
 
+    # `binance-mm live` = realtime orderbook market terminal (all markets).
+    if len(sys.argv) > 1 and sys.argv[1] == "live":
+        root = Path(__file__).resolve().parents[2]
+        log = root / "logs" / "demo.jsonl"
+        argv = sys.argv[2:]
+        for i, a in enumerate(argv):
+            if a == "--log" and i + 1 < len(argv):
+                log = Path(argv[i + 1])
+        from .live import run_live
+
+        run_live(log)
+        return
+
     args = parser().parse_args()
 
     agent = Agent(args)

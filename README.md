@@ -187,12 +187,19 @@ Run a paper (demo) bot in one terminal:
 
     uv run binance-mm --environment paper --refresh 2 --max-orders 10
 
-Open a second terminal and start the dashboard (any directory inside the repo):
+Open a second terminal and start a **realtime orderbook terminal** — every
+eligible USDT-M perpetual with live bid/ask/spread streamed from Binance's
+WebSocket (!bookTicker), plus the bot's equity/orders summary. Scroll with
+↑/↓ (or w/s), PgUp/PgDn, Home/End; `q` quits:
 
-    uv run binance-mm watch
+    uv run binance-mm live
+
+There is also a richer two-venue dashboard (LIVE/DEMO toggle):
+
+    uv run binance-mm watch          # ←/→ switches LIVE ⇄ DEMO, q quits
 
 Keys:  Left/Right arrow (or `l` / `d`) switch between LIVE and DEMO views
-       `q` quits. LIVE shows the Agent OS account stream (`logs/live.jsonl`),
+       in `watch`. LIVE shows the Agent OS account stream (`logs/live.jsonl`),
        DEMO shows the paper stream (`logs/demo.jsonl`).
 
 Note on LIVE mode: real order execution always runs through the Binance Agent OS

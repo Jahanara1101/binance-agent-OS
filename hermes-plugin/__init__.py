@@ -42,7 +42,7 @@ def register(ctx):
         subparser.add_argument(
             "action",
             choices=["status", "account", "positions", "orders",
-                     "run-perp", "run-spot", "run-both", "watch"],
+                     "run-perp", "run-spot", "run-both", "watch", "live"],
         )
         subparser.add_argument("--symbol")
         subparser.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
@@ -183,6 +183,10 @@ def register(ctx):
             root = _project_root()
             run_watch(live_path=root / "logs" / "live.jsonl",
                       demo_path=root / "logs" / "demo.jsonl", start="live")
+        elif args.action == "live":
+            from binance_mm.live import run_live
+
+            run_live(_project_root() / "logs" / "demo.jsonl")
         elif args.action in run_map:
             import asyncio
 
