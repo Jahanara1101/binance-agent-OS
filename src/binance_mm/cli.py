@@ -92,11 +92,16 @@ class Agent:
         return {m.symbol: m for m in markets}, books
 
     def render(self) -> Any:
-        """Full-screen edge-to-edge demo terminal. NO panels, NO tables, NO
-        borders — just color-styled text lines that span the whole terminal and
-        fill it from top to bottom. Header is a solid background strip."""
+        """Professional full-screen trading dashboard. Clean bordered panels,
+        aligned columns, color-coded values — the standard pattern used by
+        real terminal trading UIs (TerminalCrypt, Binance-TUI)."""
         from datetime import UTC, datetime
 
+        from rich import box
+        from rich.columns import Columns
+        from rich.console import Group
+        from rich.panel import Panel
+        from rich.table import Table
         from rich.text import Text
 
         clock = datetime.now(UTC).strftime("%H:%M:%S")
@@ -111,105 +116,93 @@ class Agent:
                 if book:
                     base_val += abs(net) * book.mid
             equity = float(self.cash) + float(base_val)
-        eq_up = equity >= 0
+        eq_col = "bright_green" if equity >= 0 else "bright_red"
 
-        # terminal size (fall back if unavailable)
-        try:
-            cw = Console().width or 120
-            ch = Console().height or 40
-        except Exception:  # noqa: BLE001
-            cw, ch = 120, 40
+        # ---------------- header band ----------------
+        head = Panel(
+            Text.assemble(
+                ("  BINANCE MARKET MAKER", "bold white on bright_blue"),
+                (f"  DEMO {self.venue.upper()}  ", "white on bright_blue"),
+                (f"EQ ${equity:,.2f}  ", f"bold black on {eq_col}" if equity>=0 else "white on bright_red"),
+                (f"{self.eligible_count} mkts  {feed_state}  ", "white on bright_blue"),
+                ((f"P{self.stats.placed} C{self.stats.cancelled} F{self.stats.fills} "
+                  f"open{len(self.active)}  {clock} UTC"), "white on bright_blue"),
+            ),
+            box=box.SIMPLE, border_style="bright_blue", padding=0,
+        )
 
-        # ---------------- LEFT column content (trades/fills) ----------------
-        left: list[str] = []
-        left.append("[bold black on bright_magenta] FILLS & TRADES [/]")
-        left.append("")
-        for ev in list(self.stats.fill_events)[-18:][::-1]:
-            left.append(f"  [bright_cyan]▸[/] {ev}")
-        for ev in list(self.stats.events)[-20:][::-1]:
+        # ---------------- LEFT: FILLS & TRADES ----------------
+        ft = Table(box=box.SIMPLE, expand=True, pad_edge=False, show_edge=False)
+        ft.add_column("", style="dim", width=6)
+        ft.add_column("TRADE", no_wrap=False)
+        for ev in list(self.stats.fill_events)[-10:][::-1]:
+            ft.add_row("[bright_cyan]FILL[/]", ev)
+        for ev in list(self.stats.events)[-14:][::-1]:
             tag, _, rest = ev.partition(" ")
             if tag.startswith("QUOTE"):
                 if " BUY " in ev:
-                    left.append(f"  [bright_green]▲ BUY[/]  {rest}")
+                    ft.add_row("[bright_green]▲ BUY[/]", rest)
                 else:
-                    left.append(f"  [bright_red]▼ SELL[/] {rest}")
+                    ft.add_row("[bright_red]▼ SELL[/]", rest)
             elif tag == "CANCEL":
-                left.append(f"  [yellow]✕ CANCEL[/]  {rest}")
-            elif tag.startswith("SIBLING"):
-                left.append(f"  [dim]× {ev}[/]")
+                ft.add_row("[yellow]✕[/]", rest)
             else:
-                left.append(f"  [dim]{ev}[/]")
-        left.append("")
-        left.append("[bold black on bright_yellow] PORTFOLIO [/]")
-        left.append(f"  [bold]EQUITY[/]   ${equity:,.2f}" if eq_up
-                    else f"  [bold]EQUITY[/]   [bright_red]${equity:,.2f}[/]")
-        if self.inventory._net:
-            for sym, net in list(self.inventory._net.items())[:14]:
-                st = "bright_green" if net > 0 else "bright_red"
-                left.append(f"  {sym:<13} [{st}]{net:+.4g}[/]")
-        else:
-            left.append("  (no open positions)")
+                ft.add_row("[dim]·[/]", ev)
+        if not (self.stats.fill_events or self.stats.events):
+            ft.add_row("[dim]·[/]", "awaiting activity…")
+        left_panel = Panel(ft, title="[bold]FILLS & TRADES[/]",
+                           border_style="bright_magenta", padding=(0, 1))
 
-        # ---------------- RIGHT column content (open orders) ---------------
-        right: list[str] = []
-        right.append("[bold black on bright_cyan] OPEN ORDERS [/]")
-        right.append("")
-        right.append("[dim]  SYMBOL      SIDE   QTY     PRICE   NOTIONAL[/]")
+        # ---------------- RIGHT: OPEN ORDERS ----------------
+        oo = Table(box=box.SIMPLE, expand=True, pad_edge=False, show_edge=False)
+        oo.add_column("SYMBOL", style="bold white")
+        oo.add_column("SIDE")
+        oo.add_column("QTY", justify="right", style="yellow")
+        oo.add_column("PRICE", justify="right", style="white")
+        oo.add_column("NOTIONAL", justify="right", style="magenta")
         if self.active:
             for oid, o in list(self.active.items()):
                 sst = "bright_green" if o.side.value == "BUY" else "bright_red"
                 nv = float(o.price) * float(o.quantity)
-                right.append(
-                    f"  [white]{o.symbol:<10}[/] [{sst}]{o.side.value:<4}[/]"
-                    f"[yellow]{float(o.quantity):>7.4g}[/]"
-                    f"[white]{float(o.price):>9.6g}[/]"
-                    f"[magenta]{nv:>9,.2f}[/]"
-                )
+                oo.add_row(o.symbol, f"[{sst}]{o.side.value}[/]",
+                           f"{float(o.quantity):.4g}", f"{float(o.price):.6g}",
+                           f"{nv:,.2f}")
         else:
-            right.append("  (no open orders)")
-        right.append("")
-        right.append("[bold black on white] STATS [/]")
-        right.append(f"  [white]placed[/]    {self.stats.placed}")
-        right.append(f"  [yellow]cancelled[/] {self.stats.cancelled}")
-        right.append(f"  [cyan]fills[/]     {self.stats.fills}")
-        right.append(f"  [white]open[/]      {len(self.active)}")
-        right.append(f"  [dim]refresh[/]    {self.args.refresh}s")
+            oo.add_row("[dim]—[/]", "", "", "", "")
+        right_panel = Panel(oo, title=f"[bold]OPEN ORDERS[/]  [dim]{len(self.active)} live[/]",
+                            border_style="bright_cyan", padding=(0, 1))
 
-        # ---------------- header strip (full width background) --------------
-        head_txt = (
-            f"  BINANCE MARKET MAKER   ·   DEMO {self.venue.upper()}   "
-            f"   EQ ${equity:,.2f}   {self.eligible_count} mkts   {feed_state}   "
-            f"P{self.stats.placed} C{self.stats.cancelled} F{self.stats.fills} "
-            f"open {len(self.active)}   {clock} UTC"
-        )
-        head_fill = (head_txt + " " * cw)[:cw]
-        head = Text(head_fill, style="bold white on bright_blue")
+        # ---------------- BOTTOM: PORTFOLIO + STATS ----------------
+        pf = Table(box=box.SIMPLE, expand=True, pad_edge=False, show_edge=False)
+        pf.add_column("SYMBOL", style="bold white")
+        pf.add_column("POSITION", justify="right")
+        pf.add_column("MARK", justify="right", style="magenta")
+        pf.add_column("", style="dim")
+        pf.add_column("STAT", justify="right", style="dim")
+        pf.add_column("VALUE", justify="right")
+        if self.inventory._net:
+            for sym, net in list(self.inventory._net.items())[:8]:
+                st = "bright_green" if net > 0 else "bright_red"
+                book = self._books.get(sym)
+                mark = f"{book.mid:.6g}" if book else "—"
+                pf.add_row(sym, f"[{st}]{net:+.4g}[/]", mark, "", "", "")
+        else:
+            pf.add_row("[dim]no open positions[/]", "", "", "", "", "")
+        pf.add_row("", "", "",
+                   "[bold]EQUITY[/]", f"[{eq_col}]${equity:,.2f}[/]", "")
+        pf.add_row("", "", "",
+                   "[dim]placed[/]", str(self.stats.placed), "")
+        pf.add_row("", "", "",
+                   "[yellow]cancelled[/]", str(self.stats.cancelled), "")
+        pf.add_row("", "", "",
+                   "[cyan]fills[/]", str(self.stats.fills), "")
+        pf.add_row("", "", "",
+                   "[dim]open[/]", str(len(self.active)), "")
+        bottom_panel = Panel(pf, title="[bold]PORTFOLIO · STATS[/]",
+                             border_style="bright_yellow", padding=(0, 1))
 
-        # ---------------- assemble rows edge-to-edge -----------------------
-        # Build one merged markup line per row, padded to the column gutter, so
-        # colors survive AND alignment stays clean.
-        body_h = max(6, ch - 2)
-        lw = int(cw * 0.60)
-        rw = cw - lw
-        out = Text()
-        out.append(head)
-        out.append("\n")
-
-        for i in range(body_h):
-            l = left[i] if i < len(left) else ""
-            r = right[i] if i < len(right) else ""
-            lt = Text.from_markup(l, emoji=False)
-            rt = Text.from_markup(r, emoji=False)
-            # pad each rendered Text to its column width with trailing spaces
-            lpad = " " * max(0, lw - lt.cell_len)
-            rpad = " " * max(0, rw - rt.cell_len)
-            row = Text() if not (lt or rt) else lt
-            row += Text(lpad) if lpad else Text("")
-            row += rt
-            row += Text(rpad) if rpad else Text("")
-            out.append(row)
-            out.append("\n")
-        return out
+        columns = Columns([left_panel, right_panel], equal=True, expand=True)
+        return Group(head, columns, bottom_panel)
 
 
     async def cancel_all(self) -> None:
