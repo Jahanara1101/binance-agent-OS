@@ -122,7 +122,7 @@ class Agent:
 
         # ---------------- LEFT column content (trades/fills) ----------------
         left: list[str] = []
-        left.append("[bold underline]FILLS & TRADES[/]")
+        left.append("[bold black on bright_magenta] FILLS & TRADES [/]")
         left.append("")
         for ev in list(self.stats.fill_events)[-18:][::-1]:
             left.append(f"  [bright_cyan]▸[/] {ev}")
@@ -140,7 +140,7 @@ class Agent:
             else:
                 left.append(f"  [dim]{ev}[/]")
         left.append("")
-        left.append(f"[bold underline]PORTFOLIO  [/][dim]{self.venue.upper()}[/]")
+        left.append("[bold black on bright_yellow] PORTFOLIO [/]")
         left.append(f"  [bold]EQUITY[/]   ${equity:,.2f}" if eq_up
                     else f"  [bold]EQUITY[/]   [bright_red]${equity:,.2f}[/]")
         if self.inventory._net:
@@ -152,7 +152,7 @@ class Agent:
 
         # ---------------- RIGHT column content (open orders) ---------------
         right: list[str] = []
-        right.append("[bold underline]OPEN ORDERS[/]")
+        right.append("[bold black on bright_cyan] OPEN ORDERS [/]")
         right.append("")
         right.append("[dim]  SYMBOL      SIDE   QTY     PRICE   NOTIONAL[/]")
         if self.active:
@@ -168,7 +168,7 @@ class Agent:
         else:
             right.append("  (no open orders)")
         right.append("")
-        right.append("[bold underline]STATS[/]")
+        right.append("[bold black on white] STATS [/]")
         right.append(f"  [white]placed[/]    {self.stats.placed}")
         right.append(f"  [yellow]cancelled[/] {self.stats.cancelled}")
         right.append(f"  [cyan]fills[/]     {self.stats.fills}")
@@ -186,23 +186,28 @@ class Agent:
         head = Text(head_fill, style="bold white on bright_blue")
 
         # ---------------- assemble rows edge-to-edge -----------------------
-        # Each row = colored left text + padding + colored right text + padding,
-        # so colors survive AND the line spans the full terminal width.
+        # Build one merged markup line per row, padded to the column gutter, so
+        # colors survive AND alignment stays clean.
         body_h = max(6, ch - 2)
-        lw = int(cw * 0.58)
+        lw = int(cw * 0.60)
         rw = cw - lw
         out = Text()
         out.append(head)
         out.append("\n")
+
         for i in range(body_h):
             l = left[i] if i < len(left) else ""
             r = right[i] if i < len(right) else ""
             lt = Text.from_markup(l, emoji=False)
             rt = Text.from_markup(r, emoji=False)
-            out.append(lt)
-            out.append(" " * max(0, lw - lt.cell_len))
-            out.append(rt)
-            out.append(" " * max(0, rw - rt.cell_len))
+            # pad each rendered Text to its column width with trailing spaces
+            lpad = " " * max(0, lw - lt.cell_len)
+            rpad = " " * max(0, rw - rt.cell_len)
+            row = Text() if not (lt or rt) else lt
+            row += Text(lpad) if lpad else Text("")
+            row += rt
+            row += Text(rpad) if rpad else Text("")
+            out.append(row)
             out.append("\n")
         return out
 
