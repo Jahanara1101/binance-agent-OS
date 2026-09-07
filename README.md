@@ -60,8 +60,8 @@ client at all.
 | Binance Agent OS OAuth execution | Yes | Yes |
 | USDT default | Yes | Yes |
 | Optional USDC markets | Yes | Yes |
-| Portfolio allocation per leg | 2% | 5% |
-| Max open orders | 30 | 10 |
+| Portfolio allocation per leg | 2% | Fixed $6 notional/order |
+| Max open orders | 30 | 5 |
 | Leverage | 5x | Not applicable |
 | Normal mode | Yes | Yes |
 
@@ -75,10 +75,11 @@ There is no API-key fallback.
 ## Configuration
 
 The bot is a maker liquidity agent on Binance Spot and USD-M Perpetual. Public
-configuration is limited to the two parameters that users most need to tune
+configuration is limited to the parameters that users most need to tune
 (internal selection, sizing and exit thresholds are kept private):
 
-- Portfolio allocation per leg: **2%** (`--margin-fraction 0.02`) on Perp, **5%** (`--margin-fraction 0.05`) on Spot
+- Portfolio allocation per leg: **2%** (`--margin-fraction 0.02`) on Perp
+- Spot order size: **fixed $6 notional** per buy order (no percentage of balance)
 - Futures leverage: **5x** (`--leverage 5`)
 
 Safe-exit (`binance-mm safe-exit`): cancels all open quotes, hedges any

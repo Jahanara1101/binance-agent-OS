@@ -136,8 +136,10 @@ def register(ctx):
                                   margin_fraction=getattr(args, "margin_fraction", Decimal("0.02")),
                                   leverage=getattr(args, "leverage", 5),
                                   min_spread=args.min_spread),
-            "spot": SpotRunner(executor, args.refresh, args.max_orders,
-                               allocation=getattr(args, "margin_fraction", Decimal("0.05")),
+            # Spot default cap is 5 open orders (30 means "not overridden").
+            "spot": SpotRunner(executor, args.refresh,
+                               args.max_orders if args.max_orders != 30 else 5,
+                               min_order_notional=Decimal("6"),
                                min_spread=args.min_spread),
         }
         try:

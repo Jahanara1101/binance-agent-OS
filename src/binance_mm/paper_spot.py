@@ -5,8 +5,8 @@ PaperBroker (simulated fills) instead of the exchange. Spot semantics:
 
 * We hold a quote balance (e.g. USDT) and base inventory per symbol.
 * Existing base inventory is exited first with a maker SELL (no spread gate).
-* Fresh BUY entries are sized to a fraction of the quote balance and only
-  proposed when the spread gate (>= min_spread) is met.
+* Fresh BUY entries are sized to a fixed `min_order_notional` (e.g. $6)
+  and only proposed when the spread gate (>= min_spread) is met.
 * No naked SELL: we never sell a base we do not hold.
 
 The Agent class drives the cycle; this module only decides which orders to
@@ -31,7 +31,7 @@ def propose_spot_orders(
     books: dict[str, Book],
     quote_balance: Decimal,
     base_balances: dict[str, Decimal],
-    allocation: Decimal = Decimal("0.01"),
+    min_order_notional: Decimal = Decimal(6),
     min_spread: Decimal = Decimal("0.0002"),
     max_orders: int = 30,
 ) -> list[Order]:
@@ -60,8 +60,9 @@ def propose_spot_orders(
     ]
     slots = max(0, max_orders - len(proposals))
     if slots and buy_markets and quote_balance > 0:
-        # each fresh BUY uses `allocation` (e.g. 5%) of the quote balance
-        notional_per = quote_balance * allocation
+        # each fresh BUY uses a fixed `min_order_notional` (e.g. $6),
+        # not a percentage of the quote balance.
+        notional_per = min_order_notional
         for market in buy_markets[:slots]:
             book = books[market.symbol]
             quantity = _floor(notional_per / book.bid, market.step_size)

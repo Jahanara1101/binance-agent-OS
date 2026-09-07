@@ -454,7 +454,7 @@ class Agent:
                         base_balances = {sym: abs(net) for sym, net in self.inventory._net.items()}
                         orders = propose_spot_orders(
                             self.markets, books, self.cash, base_balances,
-                            allocation=Decimal(str(self.args.margin_fraction)),
+                            min_order_notional=Decimal(6),
                             min_spread=Decimal(str(self.args.min_spread)),
                             max_orders=available,
                         )
@@ -623,13 +623,10 @@ def main() -> None:
     args.venue = venue
     if args.min_volume is None:
         args.min_volume = Decimal(10000000)
-    # Spot defaults: max 10 open orders, 5% of balance per order (futures stays
-    # 30 orders / 2%). These are the safe public defaults for spot.
-    if venue == "spot":
-        if args.max_orders == 30:  # user didn't override
-            args.max_orders = 10
-        if args.margin_fraction == Decimal("0.02"):  # user didn't override
-            args.margin_fraction = Decimal("0.05")
+    # Spot defaults: max 5 open orders, fixed $6 notional per order (futures
+    # stays 30 orders / 2% per leg). These are the safe public defaults for spot.
+    if venue == "spot" and args.max_orders == 30:  # user didn't override
+        args.max_orders = 5
     # venue-specific demo log so live can show perp and spot separately
     args.log_file = str(demo_log() if venue == "perp" else Path(str(demo_log()).replace("demo.jsonl", "demo-spot.jsonl")))
     if args.environment == "agent-os":

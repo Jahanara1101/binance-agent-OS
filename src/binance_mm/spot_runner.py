@@ -20,13 +20,13 @@ class SpotRunner:
         executor: Any,
         refresh_seconds: int = 3,
         max_orders: int = 30,
-        allocation: Decimal = Decimal("0.01"),
+        min_order_notional: Decimal = Decimal(6),
         min_spread: Decimal = Decimal("0.0002"),
     ) -> None:
         self.executor = executor
         self.refresh_seconds = refresh_seconds
         self.max_orders = max_orders
-        self.allocation = allocation
+        self.min_order_notional = min_order_notional
         self.min_spread = min_spread
         self.sequence = 0
         self.last_snapshot: dict[str, Any] = {}
@@ -80,8 +80,9 @@ class SpotRunner:
         ]
         slots = max(0, capacity - len(proposals))
         if slots and buy_markets and quote_balance > 0:
-            # each fresh BUY uses `allocation` (e.g. 5%) of the quote balance
-            notional = quote_balance * self.allocation
+            # each fresh BUY uses a fixed `min_order_notional` (e.g. $6),
+            # not a percentage of the quote balance.
+            notional = self.min_order_notional
             for market in buy_markets[:slots]:
                 quantity = self._floor(notional / books[market.symbol].bid, market.step_size)
                 if quantity >= market.min_qty and quantity * books[market.symbol].bid >= market.min_notional:
