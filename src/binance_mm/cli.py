@@ -75,75 +75,87 @@ class Agent:
         return {m.symbol: m for m in markets}, books
 
     def render(self) -> Any:
-        """Borderless full-screen combined terminal: header + live market board
-        + trade tape. No table grids — clean colored lines, edge to edge."""
+        """Full-screen demo terminal: colored header band + two-column live view
+        (orderbook | fills/portfolio). Colors via rich markup (from_markup), so
+        they actually render instead of printing literal [tags]."""
         from datetime import UTC, datetime
 
+        from rich.columns import Columns
         from rich.console import Group
-        from rich.layout import Layout
+        from rich.panel import Panel
         from rich.text import Text
 
         clock = datetime.now(UTC).strftime("%H:%M:%S")
         feed_state = ("● live" if self.feed and self.feed.connected
                       else "○ connecting" if not (self.feed and self.feed.error)
                       else "● reconnect")
-        eq_col = "bright_green" if float(self.args.paper_equity) >= 0 else "bright_red"
+        equity = float(self.args.paper_equity)
+        eq_txt = f"${equity:,.2f}"
+        eq_style = "bold black on bright_green" if equity >= 0 else "white on bright_red"
 
-        header = Text.assemble(
-            ("  BINANCE ", "bold white"), ("MARKET MAKER", "bold"),
-            ("   ·   ", "dim"), ("DEMO", "bold bright_green"),
-            ("   │   ", "dim"),
-            (f"EQUITY ${float(self.args.paper_equity):,.2f}", eq_col),
-            ("   │   ", "dim"),
-            (f"{self.eligible_count} markets", "cyan"),
-            ("   ", ""), (feed_state, "green"),
-            ("   │   ", "dim"), (f"clock {clock} UTC", "dim"),
-            ("\n  ", ""),
-            ((f"placed {self.stats.placed}  cancelled {self.stats.cancelled}  "
-              f"fills {self.stats.fills}  open {len(self.active)}"), "dim"),
+        # ---------- top header band (full width, colored background) ----------
+        head = Text.assemble(
+            ("  BINANCE MARKET MAKER", "bold white on bright_blue"),
+            ("  · DEMO  ", "white on bright_blue"),
+            ("EQUITY ", "white on bright_blue"),
+            (eq_txt, eq_style),
+            (f"   {self.eligible_count} mkts   ", "white on bright_blue"),
+            (feed_state, "bold white on bright_blue"),
+            ((f"   placed {self.stats.placed}   canc {self.stats.cancelled}   "
+              f"fills {self.stats.fills}   open {len(self.active)}"), "white on bright_blue"),
+            (f"      {clock} UTC", "white on bright_blue"),
         )
 
-        # Live market board (realtime orderbook spreads, no borders)
+        # ---------- left panel: live orderbook ----------
         rows = self.feed.snapshot() if self.feed else []
         rows.sort(key=lambda r: -r["spread"])
-        # Fill as much of the screen as possible with the live board.
-        try:
-            height = Console().height
-        except Exception:  # noqa: BLE001
-            height = 40
-        board_rows = max(8, height - 14)
-        board = Text(style="")
-        for r in rows[:board_rows]:
-            spread = r["spread"]
-            color = ("bright_green" if spread >= 0.02
-                      else "yellow" if spread >= 0.01 else "bright_red")
-            board.append(
-                f"  {r['sym']:<12} {r['bid']:>12.6g} {r['ask']:>12.6g}  "
-                f"[{color}]{spread:>6.4f}%[/]  \n"
-            )
-        if not rows:
-            board.append("  connecting to live orderbook…\n")
+        left_lines = [f"  [bold white]LIVE ORDERBOOK[/]  [dim]{self.eligible_count} symbols · spread %[/]"]
+        if rows:
+            for r in rows[:40]:
+                spread = r["spread"]
+                color = ("bright_green" if spread >= 0.02
+                         else "yellow" if spread >= 0.01 else "bright_red")
+                left_lines.append(
+                    f"  {r['sym']:<13} [white]{r['bid']:>11.6g} {r['ask']:>11.6g}[/]"
+                    f"   [{color}]{spread:>6.4f}%[/]"
+                )
+        else:
+            left_lines.append("  connecting to live orderbook…")
+        left_txt = Text.from_markup("\n".join(left_lines), emoji=False)
+        left_panel = Panel(left_txt, border_style="bright_blue",
+                           title="[bold]MARKETS[/]",
+                           subtitle="[dim]highest spread first[/]", padding=(0, 1))
 
-        # Trade tape (latest fills/events, colored)
-        tape = Text(style="")
+        # ---------- right panel: fills + trade tape + portfolio ----------
+        right_lines = ["  [bold white]TRADE TAPE[/]"]
         for ev in list(self.stats.fill_events)[-6:]:
-            tape.append(f"  [cyan]FILL[/] {ev}\n")
-        for ev in list(self.stats.events)[-8:]:
-            tag, rest = ev.split(" ", 1) if " " in ev else (ev, "")
+            right_lines.append("  [bright_cyan]FILL[/]  " + ev)
+        for ev in list(self.stats.events)[-10:]:
+            tag, _, rest = ev.partition(" ")
             if tag.startswith("QUOTE"):
-                side = "BUY" if " BUY " in ev else "SELL"
-                tape.append(f"  [{'green' if side=='BUY' else 'red'}]{tag}[/] {rest}\n")
+                style = "bright_green" if " BUY " in ev else "bright_red"
+                mark = "▲ BUY" if " BUY " in ev else "▼ SELL"
+                right_lines.append(f"  [{style}]{mark}[/] " + rest)
+            elif tag == "CANCEL":
+                right_lines.append("  [yellow]CANCEL[/] " + rest)
             else:
-                tape.append(f"  [yellow]{tag}[/] {rest}\n")
+                right_lines.append("  " + ev)
+        right_lines.append("")
+        right_lines.append("  [bold white]PORTFOLIO[/]")
+        right_lines.append("  EQUITY  [bold]$" + f"{equity:,.2f}[/]")
+        if self.inventory._net:
+            for sym, net in list(self.inventory._net.items())[:8]:
+                style = "bright_green" if net >= 0 else "bright_red"
+                right_lines.append(f"  {sym:<12} [{style}]{net:+.4g}[/]")
+        else:
+            right_lines.append("  (no open positions)")
+        right_txt = Text.from_markup("\n".join(right_lines), emoji=False)
+        right_panel = Panel(right_txt, border_style="bright_green",
+                            title="[bold]ACTIVITY[/]", padding=(0, 1))
 
-        left = Group(Text("\n  LIVE ORDERBOOK\n"), board)
-        right = Group(Text("  TRADE TAPE\n"), tape)
-        body = Layout()
-        body.split_row(Layout(left, name="left", ratio=3),
-                       Layout(right, name="right", ratio=2))
-        layout = Layout()
-        layout.split(Layout(header, name="head", size=4), Layout(body, name="body"))
-        return layout
+        columns = Columns([left_panel, right_panel], equal=True, expand=True)
+        return Group(head, columns)
+
 
     async def cancel_all(self) -> None:
         for order_id, order in list(self.active.items()):
@@ -214,7 +226,7 @@ class Agent:
                 "Start authenticated execution through Hermes: hermes binance-agent-os status. "
                 "The standalone scanner cannot bypass Binance Agent OS OAuth confirmations."
             )
-        with Live(self.render(), console=Console(), refresh_per_second=8) as live:
+        with Live(self.render(), console=Console(), refresh_per_second=8, screen=True) as live:
             try:
                 while self.running:
                     started = time.monotonic()
