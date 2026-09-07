@@ -78,7 +78,7 @@ The bot is a maker liquidity agent on Binance Spot and USD-M Perpetual. Public
 configuration is limited to the two parameters that users most need to tune
 (internal selection, sizing and exit thresholds are kept private):
 
-- Portfolio allocation per leg: **2%** (`--margin-fraction 0.02`)
+- Portfolio allocation per leg: **2%** (`--margin-fraction 0.02`) on Perp, **5%** (`--margin-fraction 0.05`) on Spot
 - Futures leverage: **5x** (`--leverage 5`)
 
 Safe-exit (`binance-mm safe-exit`): cancels all open quotes, hedges any
