@@ -11,7 +11,7 @@ from typing import Any
 from rich.console import Console
 from rich.live import Live
 
-from .binance import BinanceClient, parse_books, parse_markets
+from .binance import BinanceClient, parse_markets
 from .models import Book, Order, Side
 from .paper import PaperBroker
 from .paths import demo_log, live_log
@@ -55,117 +55,156 @@ class Agent:
         self.markets = []
         self.feed = None
         self._books: dict[str, Book] = {}
+        self._cached_markets: list = []
+        self._meta_ttl = 30.0   # exchangeInfo + 24h tickers refresh every 30s
 
 
     def stop(self, *_: object) -> None:
         self.running = False
 
     async def scan(self) -> tuple[dict, dict]:
-        exchange_info, ticker_data, book_data = await asyncio.gather(
-            self.client.exchange_info(), self.client.ticker_24h(), self.client.book_tickers()
-        )
-        all_markets = parse_markets(exchange_info, ticker_data)
-        self.market_count = len(all_markets)
-        markets = select_markets(all_markets, self.args.quote, Decimal(str(self.args.min_volume)))
-        expected = "SPOT" if self.venue == "spot" else "PERPETUAL"
-        markets = [m for m in markets if m.contract_type == expected]
-        books = parse_books(book_data)
+        """Build markets + books. REST (exchangeInfo/ticker) is cached for 30s;
+        live books come from the WebSocket !bookTicker feed, so we do NOT poll
+        the REST book endpoint every cycle (avoids Binance 429 rate limits)."""
+        now = time.monotonic()
+        if now - self.last_scan >= self._meta_ttl or not self._cached_markets:
+            exchange_info, ticker_data = await asyncio.gather(
+                self.client.exchange_info(), self.client.ticker_24h()
+            )
+            all_markets = parse_markets(exchange_info, ticker_data)
+            self.market_count = len(all_markets)
+            markets = select_markets(all_markets, self.args.quote,
+                                     Decimal(str(self.args.min_volume)))
+            expected = "SPOT" if self.venue == "spot" else "PERPETUAL"
+            markets = [m for m in markets if m.contract_type == expected]
+            self._cached_markets = markets
+            self.last_scan = now
+        markets = self._cached_markets
         self.markets = markets
         self.eligible_count = len(markets)
+
+        # Live books from the WebSocket feed (no REST polling).
+        books: dict[str, Book] = {}
+        if self.feed:
+            for r in self.feed.snapshot():
+                books[r["sym"]] = Book(Decimal(str(r["bid"])), Decimal(str(r["ask"])))
+        self._books = books
         return {m.symbol: m for m in markets}, books
 
     def render(self) -> Any:
-        """Full-screen demo terminal: colored header band + two-column live view
-        (orderbook | fills/portfolio). Colors via rich markup (from_markup), so
-        they actually render instead of printing literal [tags]."""
+        """Full-screen edge-to-edge demo terminal. NO panels, NO tables, NO
+        borders — just color-styled text lines that span the whole terminal and
+        fill it from top to bottom. Header is a solid background strip."""
         from datetime import UTC, datetime
 
-        from rich.columns import Columns
-        from rich.console import Group
-        from rich.panel import Panel
         from rich.text import Text
 
         clock = datetime.now(UTC).strftime("%H:%M:%S")
-        feed_state = ("● live" if self.feed and self.feed.connected
+        feed_state = ("● LIVE" if self.feed and self.feed.connected
                       else "○ connecting" if not (self.feed and self.feed.error)
                       else "● reconnect")
         equity = float(self.args.paper_equity)
         if self.venue == "spot":
-            # spot equity = cash + current base holdings at last known mid
             base_val = Decimal(0)
             for sym, net in self.inventory._net.items():
                 book = self._books.get(sym)
                 if book:
                     base_val += abs(net) * book.mid
             equity = float(self.cash) + float(base_val)
-        eq_txt = f"${equity:,.2f}"
-        eq_style = "bold black on bright_green" if equity >= 0 else "white on bright_red"
+        eq_up = equity >= 0
 
-        # ---------- top header band (full width, colored background) ----------
-        head = Text.assemble(
-            ("  BINANCE MARKET MAKER", "bold white on bright_blue"),
-            (f"  · DEMO {self.venue.upper()}  ", "white on bright_blue"),
-            ("EQUITY ", "white on bright_blue"),
-            (eq_txt, eq_style),
-            (f"   {self.eligible_count} mkts   ", "white on bright_blue"),
-            (feed_state, "bold white on bright_blue"),
-            ((f"   placed {self.stats.placed}   canc {self.stats.cancelled}   "
-              f"fills {self.stats.fills}   open {len(self.active)}"), "white on bright_blue"),
-            (f"      {clock} UTC", "white on bright_blue"),
-        )
+        # terminal size (fall back if unavailable)
+        try:
+            cw = Console().width or 120
+            ch = Console().height or 40
+        except Exception:  # noqa: BLE001
+            cw, ch = 120, 40
 
-        # ---------- LEFT: fills + trade tape (executed) ----------
-        left_lines = ["  [bold white]FILLS & TRADES[/]   [dim]latest first[/]"]
-        for ev in list(self.stats.fill_events)[-10:][::-1]:
-            left_lines.append("  [bright_cyan]FILL[/]  " + ev)
-        for ev in list(self.stats.events)[-14:][::-1]:
+        # ---------------- LEFT column content (trades/fills) ----------------
+        left: list[str] = []
+        left.append("[bold underline]FILLS & TRADES[/]")
+        left.append("")
+        for ev in list(self.stats.fill_events)[-18:][::-1]:
+            left.append(f"  [bright_cyan]▸[/] {ev}")
+        for ev in list(self.stats.events)[-20:][::-1]:
             tag, _, rest = ev.partition(" ")
             if tag.startswith("QUOTE"):
-                style = "bright_green" if " BUY " in ev else "bright_red"
-                mark = "▲ BUY" if " BUY " in ev else "▼ SELL"
-                left_lines.append(f"  [{style}]{mark}[/] {rest}")
+                if " BUY " in ev:
+                    left.append(f"  [bright_green]▲ BUY[/]  {rest}")
+                else:
+                    left.append(f"  [bright_red]▼ SELL[/] {rest}")
             elif tag == "CANCEL":
-                left_lines.append("  [yellow]CANCEL[/] " + rest)
+                left.append(f"  [yellow]✕ CANCEL[/]  {rest}")
+            elif tag.startswith("SIBLING"):
+                left.append(f"  [dim]× {ev}[/]")
             else:
-                left_lines.append("  " + ev)
-        left_txt = Text.from_markup("\n".join(left_lines), emoji=False)
-        left_panel = Panel(left_txt, border_style="bright_green",
-                           title="[bold]EXECUTED / TRADES[/]", padding=(0, 1))
+                left.append(f"  [dim]{ev}[/]")
+        left.append("")
+        left.append(f"[bold underline]PORTFOLIO  [/][dim]{self.venue.upper()}[/]")
+        left.append(f"  [bold]EQUITY[/]   ${equity:,.2f}" if eq_up
+                    else f"  [bold]EQUITY[/]   [bright_red]${equity:,.2f}[/]")
+        if self.inventory._net:
+            for sym, net in list(self.inventory._net.items())[:14]:
+                st = "bright_green" if net > 0 else "bright_red"
+                left.append(f"  {sym:<13} [{st}]{net:+.4g}[/]")
+        else:
+            left.append("  (no open positions)")
 
-        # ---------- RIGHT: open orders (live quotes) ----------
-        right_lines = ["  [dim]sym              side   qty     price     notional[/]"]
+        # ---------------- RIGHT column content (open orders) ---------------
+        right: list[str] = []
+        right.append("[bold underline]OPEN ORDERS[/]")
+        right.append("")
+        right.append("[dim]  SYMBOL      SIDE   QTY     PRICE   NOTIONAL[/]")
         if self.active:
-            for oid, order in list(self.active.items()):
-                side = order.side.value
-                sstyle = "bright_green" if side == "BUY" else "bright_red"
-                right_lines.append(
-                    f"  [white]{order.symbol:<14}[/] [{sstyle}]{side:<4}[/]"
-                    f" [yellow]{float(order.quantity):>8.4g}[/]"
-                    f" [white]{float(order.price):>10.6g}[/]"
-                    f" [magenta]{float(order.price)*float(order.quantity):>12,.2f}[/]"
+            for oid, o in list(self.active.items()):
+                sst = "bright_green" if o.side.value == "BUY" else "bright_red"
+                nv = float(o.price) * float(o.quantity)
+                right.append(
+                    f"  [white]{o.symbol:<10}[/] [{sst}]{o.side.value:<4}[/]"
+                    f"[yellow]{float(o.quantity):>7.4g}[/]"
+                    f"[white]{float(o.price):>9.6g}[/]"
+                    f"[magenta]{nv:>9,.2f}[/]"
                 )
         else:
-            right_lines.append("  (no open orders)")
-        right_txt = Text.from_markup("\n".join(right_lines), emoji=False)
-        right_panel = Panel(right_txt, border_style="bright_blue",
-                            title=f"[bold]OPEN ORDERS[/]  [dim]{len(self.active)} live[/]",
-                            padding=(0, 1))
+            right.append("  (no open orders)")
+        right.append("")
+        right.append("[bold underline]STATS[/]")
+        right.append(f"  [white]placed[/]    {self.stats.placed}")
+        right.append(f"  [yellow]cancelled[/] {self.stats.cancelled}")
+        right.append(f"  [cyan]fills[/]     {self.stats.fills}")
+        right.append(f"  [white]open[/]      {len(self.active)}")
+        right.append(f"  [dim]refresh[/]    {self.args.refresh}s")
 
-        columns = Columns([left_panel, right_panel], equal=True, expand=True)
+        # ---------------- header strip (full width background) --------------
+        head_txt = (
+            f"  BINANCE MARKET MAKER   ·   DEMO {self.venue.upper()}   "
+            f"   EQ ${equity:,.2f}   {self.eligible_count} mkts   {feed_state}   "
+            f"P{self.stats.placed} C{self.stats.cancelled} F{self.stats.fills} "
+            f"open {len(self.active)}   {clock} UTC"
+        )
+        head_fill = (head_txt + " " * cw)[:cw]
+        head = Text(head_fill, style="bold white on bright_blue")
 
-        # ---------- bottom: portfolio band ----------
-        pf = [f"[bold]EQUITY[/]  [green]${equity:,.2f}[/]"]
-        if self.inventory._net:
-            for sym, net in list(self.inventory._net.items())[:10]:
-                style = "bright_green" if net >= 0 else "bright_red"
-                pf.append(f"  {sym:<11} [{style}]{net:+.4g}[/]")
-        else:
-            pf.append("  no open positions")
-        pf_txt = Text.from_markup("   ".join(pf), emoji=False)
-        portfolio_panel = Panel(pf_txt, border_style="yellow",
-                                title="[bold]PORTFOLIO[/]", padding=(0, 1))
-
-        return Group(head, columns, portfolio_panel)
+        # ---------------- assemble rows edge-to-edge -----------------------
+        # Each row = colored left text + padding + colored right text + padding,
+        # so colors survive AND the line spans the full terminal width.
+        body_h = max(6, ch - 2)
+        lw = int(cw * 0.58)
+        rw = cw - lw
+        out = Text()
+        out.append(head)
+        out.append("\n")
+        for i in range(body_h):
+            l = left[i] if i < len(left) else ""
+            r = right[i] if i < len(right) else ""
+            lt = Text.from_markup(l, emoji=False)
+            rt = Text.from_markup(r, emoji=False)
+            out.append(lt)
+            out.append(" " * max(0, lw - lt.cell_len))
+            out.append(rt)
+            out.append(" " * max(0, rw - rt.cell_len))
+            out.append("\n")
+        return out
 
 
     async def cancel_all(self) -> None:
@@ -247,7 +286,8 @@ class Agent:
                     if self.feed is None and self.markets:
                         from .feeds import BookFeed
 
-                        self.feed = BookFeed([m.symbol for m in self.markets])
+                        self.feed = BookFeed([m.symbol for m in self.markets],
+                                             venue=self.venue)
                         self.feed.start()
                     if self.args.environment == "paper":
                         for fill in self.paper.match(books):
