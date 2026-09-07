@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.live import Live
 
 from .binance import BinanceClient, parse_books, parse_markets
-from .models import Book, Order
+from .models import Book, Order, Side
 from .paper import PaperBroker
 from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
@@ -36,16 +36,25 @@ class Agent:
         self.args = args
         self.stats = Stats()
         self.running = True
-        self.client = BinanceClient()
+        # venue: "perp" (USDT-M futures) or "spot"
+        self.venue = getattr(args, "venue", "perp")
+        if self.venue == "spot":
+            from .binance import BinanceSpotMarketDataClient
+
+            self.client = BinanceSpotMarketDataClient()
+        else:
+            self.client = BinanceClient()
         self.paper = PaperBroker(Decimal(str(args.paper_equity)))
         self.active: dict[int, Order] = {}
         self.inventory = InventoryBook()
+        self.cash = Decimal(str(args.paper_equity)) if self.venue == "spot" else Decimal(0)
         self.log = WatchLog(args.log_file)
         self.market_count = 0
         self.eligible_count = 0
         self.last_scan = 0.0
         self.markets = []
         self.feed = None
+        self._books: dict[str, Book] = {}
 
 
     def stop(self, *_: object) -> None:
@@ -58,6 +67,8 @@ class Agent:
         all_markets = parse_markets(exchange_info, ticker_data)
         self.market_count = len(all_markets)
         markets = select_markets(all_markets, self.args.quote, Decimal(str(self.args.min_volume)))
+        expected = "SPOT" if self.venue == "spot" else "PERPETUAL"
+        markets = [m for m in markets if m.contract_type == expected]
         books = parse_books(book_data)
         self.markets = markets
         self.eligible_count = len(markets)
@@ -79,13 +90,21 @@ class Agent:
                       else "○ connecting" if not (self.feed and self.feed.error)
                       else "● reconnect")
         equity = float(self.args.paper_equity)
+        if self.venue == "spot":
+            # spot equity = cash + current base holdings at last known mid
+            base_val = Decimal(0)
+            for sym, net in self.inventory._net.items():
+                book = self._books.get(sym)
+                if book:
+                    base_val += abs(net) * book.mid
+            equity = float(self.cash) + float(base_val)
         eq_txt = f"${equity:,.2f}"
         eq_style = "bold black on bright_green" if equity >= 0 else "white on bright_red"
 
         # ---------- top header band (full width, colored background) ----------
         head = Text.assemble(
             ("  BINANCE MARKET MAKER", "bold white on bright_blue"),
-            ("  · DEMO  ", "white on bright_blue"),
+            (f"  · DEMO {self.venue.upper()}  ", "white on bright_blue"),
             ("EQUITY ", "white on bright_blue"),
             (eq_txt, eq_style),
             (f"   {self.eligible_count} mkts   ", "white on bright_blue"),
@@ -159,7 +178,7 @@ class Agent:
                 self.inventory.forget(order_id)
                 self.stats.cancelled += 1
                 self.stats.events.append(f"CANCEL {order.symbol} {order.side.value} #{order_id}")
-                self.log.event("CANCEL_CONFIRMED", venue="perp", symbol=order.symbol,
+                self.log.event("CANCEL_CONFIRMED", venue=self.venue, symbol=order.symbol,
                                side=order.side.value, price=str(order.price),
                                qty=str(order.quantity), order_id=str(order_id))
             except (RuntimeError, ValueError, OSError) as exc:
@@ -182,7 +201,7 @@ class Agent:
                 self.stats.events.append(
                     f"{tag} {order.symbol} {order.side.value} {order.quantity}@{order.price} #{order_id}"
                 )
-                self.log.event("ORDER_CONFIRMED", venue="perp", symbol=order.symbol,
+                self.log.event("ORDER_CONFIRMED", venue=self.venue, symbol=order.symbol,
                                side=order.side.value, price=str(order.price),
                                qty=str(order.quantity), order_id=str(order_id))
             except (RuntimeError, ValueError, OSError) as exc:
@@ -208,7 +227,8 @@ class Agent:
                              "ask": str(book.ask),
                              "spread": f"{book.spread_fraction * Decimal(100):.3f}"})
         self.log.snapshot(
-            venue="perp", src="demo", quote=self.args.quote, eq=float(self.args.paper_equity),
+            venue=self.venue, src="demo", quote=self.args.quote,
+            eq=float(self.cash if self.venue == "spot" else self.args.paper_equity),
             od=od, pos=pos, bal=[], pnl=0.0, mkts=mkts,
         )
 
@@ -223,6 +243,7 @@ class Agent:
                 while self.running:
                     started = time.monotonic()
                     _market_map, books = await self.scan()
+                    self._books = books
                     if self.feed is None and self.markets:
                         from .feeds import BookFeed
 
@@ -234,10 +255,20 @@ class Agent:
                             self.stats.fill_events.append(
                                 f"{fill.symbol} {fill.side.value} {fill.quantity}@{fill.price} #{fill.order_id}"
                             )
-                            self.log.event("FILL", venue="perp", symbol=fill.symbol,
+                            self.log.event("FILL", venue=self.venue, symbol=fill.symbol,
                                            side=fill.side.value, price=str(fill.price),
                                            qty=str(fill.quantity), order_id=str(fill.order_id))
                             self.active.pop(fill.order_id, None)
+                            if self.venue == "spot":
+                                # spot cash ledger: BUY spends quote, SELL earns quote
+                                delta = fill.quantity * fill.price * (1 if fill.side is Side.SELL else -1)
+                                self.cash += delta
+                                # track base holdings (net ledger) for future exits
+                                self.inventory.apply_fill(
+                                    Fill(fill.order_id, fill.symbol, fill.side,
+                                         fill.quantity, fill.price)
+                                )
+                                continue
                             sibling_ids = self.inventory.apply_fill(
                                 Fill(fill.order_id, fill.symbol, fill.side, fill.quantity, fill.price)
                             )
@@ -253,25 +284,36 @@ class Agent:
                                     )
                     await self.cancel_all()
                     available = max(0, self.args.max_orders - len(self.active))
-                    exits = [
-                        exit_order
-                        for market in self.markets
-                        if market.symbol in books
-                        and (exit_order := self.inventory.exit_order(market, books[market.symbol])) is not None
-                    ]
-                    await self.place_orders(exits[:available])
-                    available = max(0, self.args.max_orders - len(self.active))
-                    exposed = {market.symbol for market in self.markets if self.inventory.position(market.symbol)}
-                    candidates = [m for m in self.markets if m.symbol not in exposed]
-                    spread_ok = [m for m in candidates if m.symbol in books and books[m.symbol].spread_fraction >= Decimal(str(self.args.min_spread))]
-                    orders = size_quotes(
-                        spread_ok,
-                        books,
-                        Decimal(str(self.args.paper_equity)),
-                        Decimal(str(self.args.margin_fraction)),
-                        self.args.leverage,
-                        available,
-                    )
+                    if self.venue == "spot":
+                        from .paper_spot import propose_spot_orders
+
+                        base_balances = {sym: abs(net) for sym, net in self.inventory._net.items()}
+                        orders = propose_spot_orders(
+                            self.markets, books, self.cash, base_balances,
+                            allocation=Decimal(str(self.args.margin_fraction)),
+                            min_spread=Decimal(str(self.args.min_spread)),
+                            max_orders=available,
+                        )
+                    else:
+                        exits = [
+                            exit_order
+                            for market in self.markets
+                            if market.symbol in books
+                            and (exit_order := self.inventory.exit_order(market, books[market.symbol])) is not None
+                        ]
+                        await self.place_orders(exits[:available])
+                        available = max(0, self.args.max_orders - len(self.active))
+                        exposed = {market.symbol for market in self.markets if self.inventory.position(market.symbol)}
+                        candidates = [m for m in self.markets if m.symbol not in exposed]
+                        spread_ok = [m for m in candidates if m.symbol in books and books[m.symbol].spread_fraction >= Decimal(str(self.args.min_spread))]
+                        orders = size_quotes(
+                            spread_ok,
+                            books,
+                            Decimal(str(self.args.paper_equity)),
+                            Decimal(str(self.args.margin_fraction)),
+                            self.args.leverage,
+                            available,
+                        )
                     await self.place_orders(orders)
                     self.stats.cycles += 1
                     self._emit_snapshot(books)
@@ -351,8 +393,16 @@ def main() -> None:
         return
 
     # `demo` / bare `binance-mm` => paper (demo) bot, sensible defaults.
+    # Optional venue token: `binance-mm demo spot` or `binance-mm demo perp`.
+    venue = "perp"
     if argv and argv[0] in ("demo", "paper"):
         argv = argv[1:]
+        if argv and argv[0] in ("spot", "perp"):
+            venue = argv[0]
+            argv = argv[1:]
+    elif argv and argv[0] in ("spot", "perp"):
+        venue = argv[0]
+        argv = []
     elif argv and argv[0].startswith("-"):
         pass  # legacy: bare flags only
     else:
@@ -360,6 +410,7 @@ def main() -> None:
 
     sys.argv = [sys.argv[0]] + argv
     args = parser().parse_args()
+    args.venue = venue
     if args.environment == "agent-os":
         args.environment = "paper"
         args.log_file = str(demo_log())

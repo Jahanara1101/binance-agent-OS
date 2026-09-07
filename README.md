@@ -14,13 +14,16 @@ All authenticated reads and writes use the official Binance Agent OS OAuth MCP s
    uv tool install -e .
    ```
 3. Now run `binance-mm` **from any folder — no `cd` needed**:
-   - `binance-mm demo`  → paper (demo) bot: real market data, simulated fills.
-   - `binance-mm live`  → realtime orderbook terminal (every market's spread).
-   - `binance-mm watch` → two-venue dashboard (LIVE ⇄ DEMO).
+   - `binance-mm demo`      → paper perp bot (USDT-M futures): real market data, simulated fills.
+   - `binance-mm demo spot` → paper spot bot (no-naked-sell, 1% of quote per BUY).
+   - `binance-mm demo perp` → paper perp bot (same as `demo`).
+   - `binance-mm live`      → realtime orderbook terminal (every market's spread).
+   - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO).
 
    Example — open two terminals, run in each:
    ```
-   binance-mm demo        # terminal 1: the bot
+   binance-mm demo        # terminal 1: the perp bot
+   binance-mm demo spot   # or a spot bot in its own terminal
    binance-mm live        # terminal 2: live spreads / orderbook
    ```
    Stop the bot with `Ctrl+C`. `live`/`watch` scroll with ↑/↓ (or w/s),
