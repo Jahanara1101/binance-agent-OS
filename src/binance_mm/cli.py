@@ -559,7 +559,7 @@ def main() -> None:
 
     if argv and argv[0] == "live":
         venue = "perp"
-        log = demo_log()
+        log = live_log()
         i = 1
         while i < len(argv):
             if argv[i] in ("spot", "perp"):
