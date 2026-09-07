@@ -80,7 +80,8 @@ class SpotRunner:
         ]
         slots = max(0, capacity - len(proposals))
         if slots and buy_markets and quote_balance > 0:
-            notional = quote_balance * self.allocation / Decimal(min(slots, len(buy_markets)))
+            # each fresh BUY uses `allocation` (e.g. 5%) of the quote balance
+            notional = quote_balance * self.allocation
             for market in buy_markets[:slots]:
                 quantity = self._floor(notional / books[market.symbol].bid, market.step_size)
                 if quantity >= market.min_qty and quantity * books[market.symbol].bid >= market.min_notional:

@@ -63,7 +63,8 @@ def propose_spot_orders(
     ]
     slots = max(0, max_orders - len(proposals))
     if slots and buy_markets and quote_balance > 0:
-        notional_per = quote_balance * allocation / Decimal(min(slots, len(buy_markets)))
+        # each fresh BUY uses `allocation` (e.g. 5%) of the quote balance
+        notional_per = quote_balance * allocation
         for market in buy_markets[:slots]:
             book = books[market.symbol]
             quantity = _floor(notional_per / book.bid, market.step_size)

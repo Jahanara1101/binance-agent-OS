@@ -462,7 +462,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--environment", choices=["agent-os", "paper"], default="agent-os")
     p.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
     p.add_argument("--min-volume", type=Decimal, default=None,
-                   help="min 24h quote volume (default: perp $10M, spot $1M)")
+                   help="min 24h quote volume (default: $10M)")
     p.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))
     p.add_argument("--refresh", type=float, default=0.2)
     p.add_argument("--max-orders", type=int, default=30)
@@ -568,7 +568,7 @@ def main() -> None:
     args = parser().parse_args()
     args.venue = venue
     if args.min_volume is None:
-        args.min_volume = Decimal(1000000) if venue == "spot" else Decimal(10000000)
+        args.min_volume = Decimal(10000000)
     # Spot defaults: max 10 open orders, 5% of balance per order (futures stays
     # 30 orders / 2%). These are the safe public defaults for spot.
     if venue == "spot":
