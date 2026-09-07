@@ -243,7 +243,8 @@ class LiveTerminal:
 
     def _summary(self, total: int) -> Text:
         bot = self.bot
-        eq_col = "bright_green" if bot.equity >= bot.baseline else "bright_red"
+        eq_col = ("bright_green" if bot.baseline is None or bot.equity >= bot.baseline
+                  else "bright_red")
         fills = bot._n_fill
         cancels = bot._n_cancel
         posn = len(bot.positions)
