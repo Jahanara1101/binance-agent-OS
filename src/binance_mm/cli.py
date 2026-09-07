@@ -109,6 +109,7 @@ class Agent:
         cw = Console().width or 120
         ch = Console().height or 40
         cw = max(60, cw)
+        body_rows = max(4, ch - 1)
 
         feed_state = ("● LIVE" if self.feed and self.feed.connected
                       else "○ connecting" if not (self.feed and self.feed.error)
@@ -189,7 +190,7 @@ class Agent:
         right.append("[bold white]▌ LIVE SPREADS[/]")
         right.append("[dim]  SYMBOL       BID       ASK      SPREAD%[/]")
         if spreads:
-            for sym, bid, ask, sp in spreads[:40]:
+            for sym, bid, ask, sp in spreads[: max(1, body_rows - 2)]:
                 scol = "bright_green" if sp < 0.05 else ("yellow" if sp < 0.1 else "bright_red")
                 right.append(
                     f"  [white]{sym:<11}[/] [dim]{float(bid):>9.6g}[/]"
@@ -205,7 +206,6 @@ class Agent:
         out = Text()
         out.append(hdr_row)
         out.append("\n")
-        body_rows = max(4, ch - 1)
         for i in range(body_rows):
             l = left[i] if i < len(left) else ""
             m = mid[i] if i < len(mid) else ""
