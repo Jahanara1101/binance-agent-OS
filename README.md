@@ -4,7 +4,7 @@ A Binance Agent OS Track A project for scanning and providing maker liquidity on
 
 All authenticated reads and writes use the official Binance Agent OS OAuth MCP server. This repository does not accept Binance API keys or secrets and contains no authenticated REST-signing fallback.
 
-## Quick start (demo, no real money, no AI needed)
+## Quick start (You can try both Demo trading and Live trading)
 
 1. Install [uv](https://docs.astral.sh/uv/#installation) (one command).
 2. Clone and **install once** (this puts the `binance-mm` command on your PATH):
