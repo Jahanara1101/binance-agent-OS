@@ -153,16 +153,16 @@ class Agent:
         # ---------- MIDDLE pool: open orders + portfolio + stats ----------
         mid: list[str] = []
         mid.append("[bold white]▌ OPEN ORDERS[/]")
-        mid.append("[dim]  SYMBOL       SIDE   QTY     PRICE     NOTIONAL[/]")
+        mid.append("[dim]  SYMBOL      SIDE  QTY    PRICE    NOTIONAL[/]")
         if self.active:
             for oid, o in list(self.active.items()):
                 sst = "bright_green" if o.side.value == "BUY" else "bright_red"
                 nv = float(o.price) * float(o.quantity)
                 mid.append(
-                    f"  [white]{o.symbol:<11}[/] [{sst}]{o.side.value:<4}[/]"
-                    f"[yellow]{float(o.quantity):>7.4g}[/]"
-                    f"[white]{float(o.price):>9.6g}[/]"
-                    f"[magenta]{nv:>11,.2f}[/]"
+                    f"  [white]{o.symbol:<10}[/] [{sst}]{o.side.value:<3}[/]"
+                    f"[yellow]{float(o.quantity):>6.4g}[/]"
+                    f"[white]{float(o.price):>8.6g}[/]"
+                    f"[magenta]{nv:>9,.0f}[/]"
                 )
         else:
             mid.append("  [dim](none)[/]")
@@ -201,8 +201,8 @@ class Agent:
 
         # ---------- compose full-height rows, three columns ----------
         gap = 2
-        lw = max(20, int((cw - 2 * gap) * 0.42))
-        mw = max(20, int((cw - 2 * gap) * 0.32))
+        lw = max(20, int((cw - 2 * gap) * 0.34))
+        mw = max(20, int((cw - 2 * gap) * 0.42))
         rw = max(20, (cw - 2 * gap) - lw - mw)
         out = Text()
         out.append(hdr_row)
