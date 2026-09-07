@@ -149,49 +149,75 @@ class Agent:
             else:
                 left.append(f"  [dim]{ev}[/]")
 
-        # ---------- RIGHT pool: open orders + portfolio + stats ----------
-        right: list[str] = []
-        right.append("[bold white]▌ OPEN ORDERS[/]")
-        right.append("[dim]  SYMBOL       SIDE   QTY     PRICE     NOTIONAL[/]")
+        # ---------- MIDDLE pool: open orders + portfolio + stats ----------
+        mid: list[str] = []
+        mid.append("[bold white]▌ OPEN ORDERS[/]")
+        mid.append("[dim]  SYMBOL       SIDE   QTY     PRICE     NOTIONAL[/]")
         if self.active:
             for oid, o in list(self.active.items()):
                 sst = "bright_green" if o.side.value == "BUY" else "bright_red"
                 nv = float(o.price) * float(o.quantity)
-                right.append(
+                mid.append(
                     f"  [white]{o.symbol:<11}[/] [{sst}]{o.side.value:<4}[/]"
                     f"[yellow]{float(o.quantity):>7.4g}[/]"
                     f"[white]{float(o.price):>9.6g}[/]"
                     f"[magenta]{nv:>11,.2f}[/]"
                 )
         else:
-            right.append("  [dim](none)[/]")
-        right.append("")
-        right.append("[bold white]▌ PORTFOLIO[/]")
-        right.append(f"  [bold]EQUITY[/]  [{eq_col}]${equity:,.2f}[/]")
-        right.append(f"  [dim]open positions[/]  {len(self.inventory._net)}")
-        right.append("")
-        right.append("[bold white]▌ STATS[/]")
-        right.append(f"  placed    [white]{self.stats.placed}[/]")
-        right.append(f"  cancelled [yellow]{self.stats.cancelled}[/]")
-        right.append(f"  fills     [cyan]{self.stats.fills}[/]")
-        right.append(f"  open      [white]{len(self.active)}[/]")
-        right.append(f"  errors    [red]{self.stats.errors}[/]")
+            mid.append("  [dim](none)[/]")
+        mid.append("")
+        mid.append("[bold white]▌ PORTFOLIO[/]")
+        mid.append(f"  [bold]EQUITY[/]  [{eq_col}]${equity:,.2f}[/]")
+        mid.append(f"  [dim]open positions[/]  {len(self.inventory._net)}")
+        mid.append("")
+        mid.append("[bold white]▌ STATS[/]")
+        mid.append(f"  placed    [white]{self.stats.placed}[/]")
+        mid.append(f"  cancelled [yellow]{self.stats.cancelled}[/]")
+        mid.append(f"  fills     [cyan]{self.stats.fills}[/]")
+        mid.append(f"  open      [white]{len(self.active)}[/]")
+        mid.append(f"  errors    [red]{self.stats.errors}[/]")
 
-        # ---------- compose full-height rows, two columns ----------
-        lw = int(cw * 0.56)
-        rw = cw - lw
+        # ---------- RIGHT pool: live orderbook spreads ----------
+        spreads: list[tuple[str, Decimal, Decimal, float]] = []
+        for sym, book in self._books.items():
+            if not book or not book.bid or not book.ask or book.ask <= book.bid:
+                continue
+            sp = float((book.ask - book.bid) / book.mid) * 100.0
+            spreads.append((sym, book.bid, book.ask, sp))
+        spreads.sort(key=lambda x: x[3], reverse=True)
+        right: list[str] = []
+        right.append("[bold white]▌ LIVE SPREADS[/]")
+        right.append("[dim]  SYMBOL       BID       ASK      SPREAD%[/]")
+        if spreads:
+            for sym, bid, ask, sp in spreads[:40]:
+                scol = "bright_green" if sp < 0.05 else ("yellow" if sp < 0.1 else "bright_red")
+                right.append(
+                    f"  [white]{sym:<11}[/] [dim]{float(bid):>9.6g}[/]"
+                    f"[dim]{float(ask):>9.6g}[/] [{scol}]{sp:>8.4f}%[/]"
+                )
+        else:
+            right.append("  [dim](no book data)[/]")
+
+        # ---------- compose full-height rows, three columns ----------
+        lw = int(cw * 0.42)
+        mw = int(cw * 0.32)
+        rw = cw - lw - mw
         out = Text()
         out.append(hdr_row)
         out.append("\n")
         body_rows = max(4, ch - 1)
         for i in range(body_rows):
             l = left[i] if i < len(left) else ""
+            m = mid[i] if i < len(mid) else ""
             r = right[i] if i < len(right) else ""
             lt = Text.from_markup(l, emoji=False)
+            mt = Text.from_markup(m, emoji=False)
             rt = Text.from_markup(r, emoji=False)
             row = Text()
             row.append(lt)
             row.append(" " * max(0, lw - lt.cell_len))
+            row.append(mt)
+            row.append(" " * max(0, mw - mt.cell_len))
             row.append(rt)
             row.append(" " * max(0, rw - rt.cell_len))
             out.append(row)

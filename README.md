@@ -49,7 +49,7 @@ everything in `demo` / `live` / `watch` runs standalone.
 | Optional USDC markets | Yes | Yes |
 | Minimum 24h quote volume | $10M | $1M |
 | Minimum entry spread | 0.02% | 0.02% |
-| Refresh/expiry target | 1 second | 1 second |
+| Refresh/expiry target | 0.2 second | 0.2 second |
 | Maximum simultaneously open orders | 30 | 30 |
 | Portfolio allocation per leg | 2% | 2% |
 | Leverage | 5x | Not applicable |
@@ -68,7 +68,7 @@ configuration (the internal selection/exit algorithm is kept private):
 - Futures leverage: **5x** (`--leverage 5`)
 - Minimum entry spread: 0.02% (`--min-spread`)
 - Maximum open orders: 30 (`--max-orders`)
-- Refresh cadence: 1 second (`--refresh`)
+- Refresh cadence: 0.2 second (`--refresh`)
 - Minimum 24h quote volume: perp $10M, spot $1M (`--min-volume`)
 
 Safe-exit (`binance-mm safe-exit`): cancels all open quotes, hedges any
@@ -84,7 +84,7 @@ stops once flat. Optional venue: `binance-mm safe-exit spot` | `safe-exit perp`.
       - 5m candles
                 |
                 v
-      scanner + BB/spread strategy
+      scanner + market-maker strategy
                 |
                 v
       Hermes plugin using ctx.call_mcp
@@ -245,7 +245,6 @@ Paper mode uses live public market data and simulated orders, without authentica
 
     uv run binance-mm --environment paper
     uv run binance-mm --environment paper --quote USDC
-    uv run binance-mm --environment paper --strategy volatile
 
 Authenticated execution must use the Hermes Agent OS plugin.
 
