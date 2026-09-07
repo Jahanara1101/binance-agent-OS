@@ -26,10 +26,6 @@ def _floor(value: Decimal, step: Decimal) -> Decimal:
     return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
 
-def base_asset(market: Market) -> str:
-    return market.symbol[: -len(market.quote_asset)]
-
-
 def propose_spot_orders(
     markets: list[Market],
     books: dict[str, Book],
@@ -44,12 +40,13 @@ def propose_spot_orders(
     inventory_symbols: set[str] = set()
 
     # 1) Exit existing base inventory with a maker SELL (no spread gate).
+    #    base_balances is keyed by SYMBOL (e.g. ADAUSDT), matching the
+    #    inventory ledger — NOT the bare base asset (e.g. ADA).
     for market in markets:
         book = books.get(market.symbol)
         if not book:
             continue
-        base = base_asset(market)
-        amount = _floor(base_balances.get(base, Decimal(0)), market.step_size)
+        amount = _floor(base_balances.get(market.symbol, Decimal(0)), market.step_size)
         if amount >= market.min_qty and amount * book.ask >= market.min_notional:
             inventory_symbols.add(market.symbol)
             proposals.append(Order(market.symbol, Side.SELL, book.ask, amount, reduce_only=True))
