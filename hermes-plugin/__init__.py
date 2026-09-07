@@ -33,7 +33,7 @@ def register(ctx):
         parse_markets,
     )
     from binance_mm.spot_runner import SpotRunner
-    from binance_mm.strategy import bollinger_bandwidth, is_volatile, select_markets
+    from binance_mm.strategy import select_markets
 
     def call(tool, arguments):
         return ctx.call_mcp("binance", tool, arguments, timeout=120)
@@ -46,7 +46,6 @@ def register(ctx):
         )
         subparser.add_argument("--symbol")
         subparser.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
-        subparser.add_argument("--strategy", choices=["normal", "volatile"], default="normal")
         subparser.add_argument("--min-volume", type=Decimal, default=Decimal(10000000))
         subparser.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))
         subparser.add_argument("--max-orders", type=int, default=30)
@@ -60,14 +59,6 @@ def register(ctx):
         markets = select_markets(parse_markets(info, tickers), args.quote, args.min_volume)
         expected_type = "PERPETUAL" if kind == "perp" else "SPOT"
         markets = [m for m in markets if m.contract_type == expected_type]
-        if args.strategy == "volatile":
-            selected = []
-            for market in markets:
-                raw = await client.klines(market.symbol, "5m", 220)
-                widths = bollinger_bandwidth([Decimal(str(row[4])) for row in raw], 20, Decimal(2))
-                if is_volatile(widths, Decimal("0.8"), 200):
-                    selected.append(market)
-            markets = selected
         return markets, books
 
     def print_result(kind, result, executor, log, markets, books):

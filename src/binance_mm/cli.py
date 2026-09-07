@@ -16,7 +16,7 @@ from .models import Book, Order
 from .paper import PaperBroker
 from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
-from .strategy import bollinger_bandwidth, is_volatile, select_markets, size_quotes
+from .strategy import select_markets, size_quotes
 from .watch import WatchLog
 
 
@@ -59,17 +59,6 @@ class Agent:
         self.market_count = len(all_markets)
         markets = select_markets(all_markets, self.args.quote, Decimal(str(self.args.min_volume)))
         books = parse_books(book_data)
-        if self.args.strategy == "volatile":
-            semaphore = asyncio.Semaphore(10)
-
-            async def check(m):
-                async with semaphore:
-                    raw = await self.client.klines(m.symbol, "5m", 220)
-                    closes = [Decimal(str(row[4])) for row in raw]
-                    widths = bollinger_bandwidth(closes, 20, Decimal(2))
-                    return m if is_volatile(widths, Decimal("0.8"), 200) else None
-
-            markets = [m for m in await asyncio.gather(*(check(m) for m in markets)) if m]
         self.markets = markets
         self.eligible_count = len(markets)
         return {m.symbol: m for m in markets}, books
@@ -299,7 +288,6 @@ class Agent:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Binance USD-M perpetual liquidity agent")
     p.add_argument("--environment", choices=["agent-os", "paper"], default="agent-os")
-    p.add_argument("--strategy", choices=["normal", "volatile"], default="normal")
     p.add_argument("--quote", choices=["USDT", "USDC"], default="USDT")
     p.add_argument("--min-volume", type=Decimal, default=Decimal(10000000))
     p.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))

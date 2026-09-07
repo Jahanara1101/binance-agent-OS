@@ -2,8 +2,6 @@ from decimal import Decimal
 
 from binance_mm.models import Book, Market, Position, Side
 from binance_mm.strategy import (
-    bollinger_bandwidth,
-    is_volatile,
     quote_candidates,
     select_markets,
     size_quotes,
@@ -57,12 +55,6 @@ def test_size_quotes_uses_one_percent_margin_total_and_two_x_notional():
     total_notional = sum(x.notional for x in sized)
     assert total_notional <= Decimal(200)
     assert len(sized) <= 4
-
-
-def test_bollinger_wide_band_uses_current_bandwidth_above_80th_percentile():
-    closes = [Decimal(100) for _ in range(219)] + [Decimal(130)]
-    bandwidths = bollinger_bandwidth(closes, period=20, stddevs=Decimal(2))
-    assert is_volatile(bandwidths, percentile=Decimal("0.8"), lookback=200)
 
 
 def test_exit_order_ignores_entry_spread_gate_and_is_reduce_only():

@@ -48,7 +48,6 @@ everything in `demo` / `live` / `watch` runs standalone.
 | Allocation | 1% of Perp equity | 1% of Spot quote balance |
 | Leverage | 2x | Not applicable |
 | Normal mode | Yes | Yes |
-| Volatile-only mode | Yes | Yes |
 
 Spot and Perp limits are independent because the balances are separate. Running both can therefore allow up to 30 open Perp orders plus 30 open Spot orders.
 
@@ -56,19 +55,11 @@ Alpha Trading is intentionally excluded because the current Binance Agent OS MCP
 
 ## Strategy
 
-Normal mode:
-
 1. Scan all trading pairs for the selected market and quote asset.
 2. Skip pairs below $10M rolling 24-hour quote volume.
 3. Calculate `(best ask - best bid) / midpoint`.
 4. Propose maker liquidity when spread is at least 0.02%.
-5. Cancel or refresh bot-owned maker orders after 3 seconds.
-
-Volatile-only mode:
-
-- Closed 5-minute candles
-- Bollinger Bands period 20, standard deviation 2
-- Current bandwidth must be above the rolling 80th percentile of 200 bandwidth observations
+5. Cancel or refresh bot-owned maker orders after 1 second.
 
 Perpetual sizing:
 
@@ -179,23 +170,19 @@ Read Agent OS account state:
 
 Run only USD-M Perpetual:
 
-    hermes binance-agent-os run-perp --cycles 1 --quote USDT --strategy normal
+    hermes binance-agent-os run-perp --cycles 1 --quote USDT
 
 Run only Spot:
 
-    hermes binance-agent-os run-spot --cycles 1 --quote USDT --strategy normal
+    hermes binance-agent-os run-spot --cycles 1 --quote USDT
 
 Run Spot and Perp together:
 
-    hermes binance-agent-os run-both --cycles 1 --quote USDT --strategy normal
+    hermes binance-agent-os run-both --cycles 1 --quote USDT
 
 USDC mode:
 
     hermes binance-agent-os run-both --cycles 1 --quote USDC
-
-Volatile-only mode:
-
-    hermes binance-agent-os run-both --cycles 1 --strategy volatile
 
 Continuous cycles:
 

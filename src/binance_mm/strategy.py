@@ -1,6 +1,4 @@
 from decimal import ROUND_DOWN, Decimal
-from math import floor
-from statistics import pstdev
 
 from .models import Book, Market, Order, Position, Side
 
@@ -73,30 +71,3 @@ def size_quotes(
                 continue
             result.append(Order(market.symbol, side, price, quantity))
     return result[:max_orders]
-
-
-def bollinger_bandwidth(
-    closes: list[Decimal], period: int = 20, stddevs: Decimal = Decimal(2)
-) -> list[Decimal]:
-    values: list[Decimal] = []
-    for end in range(period, len(closes) + 1):
-        window = closes[end - period : end]
-        mean = sum(window) / Decimal(period)
-        if mean == 0:
-            values.append(Decimal(0))
-            continue
-        std = Decimal(str(pstdev(float(x) for x in window)))
-        values.append((Decimal(2) * stddevs * std) / mean)
-    return values
-
-
-def is_volatile(
-    bandwidths: list[Decimal], percentile: Decimal = Decimal("0.8"), lookback: int = 200
-) -> bool:
-    if len(bandwidths) < lookback:
-        return False
-    history = sorted(bandwidths[-lookback:-1])
-    if not history:
-        return False
-    index = min(len(history) - 1, max(0, floor(float(percentile) * len(history))))
-    return bandwidths[-1] > history[index]
