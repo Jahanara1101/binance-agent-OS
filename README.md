@@ -156,10 +156,6 @@ cancellation may block while waiting for Binance confirmation. Therefore:
     uv run ruff check .
     uv run pytest -q
 
-## Official references
+## License
 
-- Binance Agent OS MCP: https://developers.binance.com/en/docs/agent-native/mcp-server/agentic
-- Binance Spot market data: https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints
-- Binance USD-M exchange information: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information
-- Binance USD-M book ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Symbol-Order-Book-Ticker
-- Binance USD-M 24-hour ticker: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/24hr-Ticker-Price-Change-Statistics
+MIT
