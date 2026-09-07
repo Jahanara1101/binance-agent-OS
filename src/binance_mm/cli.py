@@ -6,10 +6,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.live import Live
-from rich.table import Table
 
 from .binance import BinanceClient, parse_books, parse_markets
 from .models import Book, Order
@@ -45,6 +45,7 @@ class Agent:
         self.eligible_count = 0
         self.last_scan = 0.0
         self.markets = []
+        self.feed = None
 
 
     def stop(self, *_: object) -> None:
@@ -73,35 +74,76 @@ class Agent:
         self.eligible_count = len(markets)
         return {m.symbol: m for m in markets}, books
 
-    def render(self) -> Table:
-        root = Table.grid(expand=True)
-        root.add_column(ratio=3)
-        root.add_column(ratio=2)
-        status = Table(title="BINANCE USD-M LIQUIDITY AGENT", expand=True)
-        status.add_column("Mode")
-        status.add_column("Strategy")
-        status.add_column("Quote")
-        status.add_column("Markets")
-        status.add_column("Open")
-        status.add_column("P/C/F/E")
-        status.add_row(
-            self.args.environment.upper(), self.args.strategy.upper(), self.args.quote,
-            f"{self.eligible_count}/{self.market_count}", str(len(self.active)),
-            f"{self.stats.placed}/{self.stats.cancelled}/{self.stats.fills}/{self.stats.errors}",
+    def render(self) -> Any:
+        """Borderless full-screen combined terminal: header + live market board
+        + trade tape. No table grids — clean colored lines, edge to edge."""
+        from datetime import UTC, datetime
+
+        from rich.console import Group
+        from rich.layout import Layout
+        from rich.text import Text
+
+        clock = datetime.now(UTC).strftime("%H:%M:%S")
+        feed_state = ("● live" if self.feed and self.feed.connected
+                      else "○ connecting" if not (self.feed and self.feed.error)
+                      else "● reconnect")
+        eq_col = "bright_green" if float(self.args.paper_equity) >= 0 else "bright_red"
+
+        header = Text.assemble(
+            ("  BINANCE ", "bold white"), ("MARKET MAKER", "bold"),
+            ("   ·   ", "dim"), ("DEMO", "bold bright_green"),
+            ("   │   ", "dim"),
+            (f"EQUITY ${float(self.args.paper_equity):,.2f}", eq_col),
+            ("   │   ", "dim"),
+            (f"{self.eligible_count} markets", "cyan"),
+            ("   ", ""), (feed_state, "green"),
+            ("   │   ", "dim"), (f"clock {clock} UTC", "dim"),
+            ("\n  ", ""),
+            ((f"placed {self.stats.placed}  cancelled {self.stats.cancelled}  "
+              f"fills {self.stats.fills}  open {len(self.active)}"), "dim"),
         )
-        activity = Table(title="ORDERS / CANCELS", expand=True)
-        activity.add_column("Latest events")
-        for event in reversed(self.stats.events):
-            activity.add_row(event)
-        fills = Table(title="FILLS", expand=True)
-        fills.add_column("Latest fills")
-        for event in reversed(self.stats.fill_events):
-            fills.add_row(event)
-        left = Table.grid(expand=True)
-        left.add_row(status)
-        left.add_row(activity)
-        root.add_row(left, fills)
-        return root
+
+        # Live market board (realtime orderbook spreads, no borders)
+        rows = self.feed.snapshot() if self.feed else []
+        rows.sort(key=lambda r: -r["spread"])
+        # Fill as much of the screen as possible with the live board.
+        try:
+            height = Console().height
+        except Exception:  # noqa: BLE001
+            height = 40
+        board_rows = max(8, height - 14)
+        board = Text(style="")
+        for r in rows[:board_rows]:
+            spread = r["spread"]
+            color = ("bright_green" if spread >= 0.02
+                      else "yellow" if spread >= 0.01 else "bright_red")
+            board.append(
+                f"  {r['sym']:<12} {r['bid']:>12.6g} {r['ask']:>12.6g}  "
+                f"[{color}]{spread:>6.4f}%[/]  \n"
+            )
+        if not rows:
+            board.append("  connecting to live orderbook…\n")
+
+        # Trade tape (latest fills/events, colored)
+        tape = Text(style="")
+        for ev in list(self.stats.fill_events)[-6:]:
+            tape.append(f"  [cyan]FILL[/] {ev}\n")
+        for ev in list(self.stats.events)[-8:]:
+            tag, rest = ev.split(" ", 1) if " " in ev else (ev, "")
+            if tag.startswith("QUOTE"):
+                side = "BUY" if " BUY " in ev else "SELL"
+                tape.append(f"  [{'green' if side=='BUY' else 'red'}]{tag}[/] {rest}\n")
+            else:
+                tape.append(f"  [yellow]{tag}[/] {rest}\n")
+
+        left = Group(Text("\n  LIVE ORDERBOOK\n"), board)
+        right = Group(Text("  TRADE TAPE\n"), tape)
+        body = Layout()
+        body.split_row(Layout(left, name="left", ratio=3),
+                       Layout(right, name="right", ratio=2))
+        layout = Layout()
+        layout.split(Layout(header, name="head", size=4), Layout(body, name="body"))
+        return layout
 
     async def cancel_all(self) -> None:
         for order_id, order in list(self.active.items()):
@@ -172,11 +214,16 @@ class Agent:
                 "Start authenticated execution through Hermes: hermes binance-agent-os status. "
                 "The standalone scanner cannot bypass Binance Agent OS OAuth confirmations."
             )
-        with Live(self.render(), console=Console(), refresh_per_second=4) as live:
+        with Live(self.render(), console=Console(), refresh_per_second=8) as live:
             try:
                 while self.running:
                     started = time.monotonic()
                     _market_map, books = await self.scan()
+                    if self.feed is None and self.markets:
+                        from .feeds import BookFeed
+
+                        self.feed = BookFeed([m.symbol for m in self.markets])
+                        self.feed.start()
                     if self.args.environment == "paper":
                         for fill in self.paper.match(books):
                             self.stats.fills += 1
@@ -230,6 +277,8 @@ class Agent:
                 await self.cancel_all()
                 await self.client.close()
                 self.log.close()
+                if self.feed:
+                    self.feed.stop()
 
 
 def parser() -> argparse.ArgumentParser:
