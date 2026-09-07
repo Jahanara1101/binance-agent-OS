@@ -167,16 +167,8 @@ class Agent:
             right.append("  [dim](none)[/]")
         right.append("")
         right.append("[bold white]▌ PORTFOLIO[/]")
-        right.append(f"  EQUITY  [{eq_col}]${equity:,.2f}[/]")
-        if self.inventory._net:
-            for sym, net in list(self.inventory._net.items()):
-                st = "bright_green" if net > 0 else "bright_red"
-                book = self._books.get(sym)
-                mark = f"{book.mid:.6g}" if book else ""
-                right.append(f"  [white]{sym:<10}[/] [{st}]{net:+.4g}[/]  "
-                             f"[dim]@ {mark}[/]")
-        else:
-            right.append("  [dim](no positions)[/]")
+        right.append(f"  [bold]EQUITY[/]  [{eq_col}]${equity:,.2f}[/]")
+        right.append(f"  [dim]open positions[/]  {len(self.inventory._net)}")
         right.append("")
         right.append("[bold white]▌ STATS[/]")
         right.append(f"  placed    [white]{self.stats.placed}[/]")
