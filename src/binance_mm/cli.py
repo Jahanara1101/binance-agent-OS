@@ -14,7 +14,6 @@ from rich.text import Text
 
 from .binance import BinanceClient, parse_markets
 from .models import Book, Order, Side
-
 from .paper import PaperBroker
 from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
