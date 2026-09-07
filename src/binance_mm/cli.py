@@ -415,7 +415,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--min-volume", type=Decimal, default=None,
                    help="min 24h quote volume (default: perp $10M, spot $1M)")
     p.add_argument("--min-spread", type=Decimal, default=Decimal("0.0002"))
-    p.add_argument("--refresh", type=float, default=1.0)
+    p.add_argument("--refresh", type=float, default=0.05)
     p.add_argument("--max-orders", type=int, default=30)
     p.add_argument("--margin-fraction", type=Decimal, default=Decimal("0.02"),
                    help="fraction of portfolio/equity allocated per leg (default 2%)")
