@@ -10,9 +10,54 @@ from typing import Any
 
 from rich.console import Console
 from rich.live import Live
+from rich.text import Text
 
 from .binance import BinanceClient, parse_markets
 from .models import Book, Order, Side
+
+# ---- 3D branding banner (isometric larry3d font + vertical lighting gradient) ----
+# Plain figlet art; gradient applied at render via rich Text (avoids markup
+# backslash-escaping bugs).
+_BANNER_BY = [
+    " ___",
+    "| _ )_  _",
+    r"| _ \ || |",
+    r"|___/\_, |",
+    "     |__/",
+]
+_BANNER_JULKAR = [
+    " _____           ___    __                                __    __",
+    "/\\___ \\         /\\_ \\  /\\ \\                              /\\ \\__/\\ \\",
+    "\\/__/\\ \\  __  __\\//\\ \\ \\ \\ \\/\\'      __     _ __       __\\ \\ ,_\\ \\ \\___",
+    "   _\\ \\ \\/\\ \\/\\ \\ \\ \\ \\ \\ \\ , <    /'__`\\  /\\`'__\\   /'__`\\ \\ \\/\\ \\  _ `\\",
+    "  /\\ \\_\\ \\ \\ \\_\\ \\ \\_\\ \\_\\ \\ \\\\`\\ /\\ \\L\\.\\_\\ \\ \\/ __/\\  __/\\ \\ \\_\\ \\ \\ \\ \\",
+    "  \\ \\____/ \\ \\____/ /\\____\\\\ \\_\\ \\_\\ \\__/.\\\\_\\ \\_\\/\\_\\ \\____\\\\ \\__\\\\ \\_\\ \\_\\",
+    "   \\/___/  \\/___/  \\/____/ \\/_/\\/_/\\/__/\\/_/ \\/_/\\/_/\\/____/ \\/__/ \\/_/\\/_/",
+]
+_BANNER_GRADIENT = [
+    "bright_cyan", "cyan", "deep_sky_blue3", "dodger_blue3", "steel_blue3",
+    "slate_blue3", "grey50",
+]
+
+
+def _banner_text(lines: list[str], gradient: list[str]) -> Text:
+    """Build a 3D banner: isometric letters with a vertical lighting gradient
+    (bright at top, dark at bottom) for depth."""
+    w = max(len(l) for l in lines)
+    lines = [l.ljust(w) for l in lines]
+    h = len(lines)
+    out = Text()
+    for i, line in enumerate(lines):
+        color = gradient[min(i, len(gradient) - 1)]
+        row = Text()
+        for ch in line:
+            if ch != " ":
+                row.append(ch, style=color)
+            else:
+                row.append(" ")
+        out.append(row)
+        out.append("\n")
+    return out
 from .paper import PaperBroker
 from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
@@ -182,27 +227,18 @@ class Agent:
         mid.append(f"  open      [white]{len(self.active)}[/]")
         mid.append(f"  errors    [red]{self.stats.errors}[/]")
         mid.append("")
-        # ---- 3D branding banner (centered in the middle column) ----
-        _by = ["___      ", "| _ )_  _ ", "| _ \\ || |", "|___/\\_, |", "     |__/ "]
-        _jul = [
-            "**          ** **                                   **   **     ",
-            "     /**         /**/**                                  /**  /**     ",
-            "     /** **   ** /**/**  **  ******   ******     *****  ******/**     ",
-            "     /**/**  /** /**/** **  //////** //**//*    **///**///**/ /****** ",
-            "     /**/**  /** /**/****    *******  /** /    /*******  /**  /**///**",
-            " **  /**/**  /** /**/**/**  **////**  /**    **/**////   /**  /**  /**",
-            "//***** //****** ***/**//**//********/***   /**//******  //** /**  /**",
-            " /////   ////// /// //  //  //////// ///    //  //////    //  //   //",
-        ]
-        _bw = max(len(l.rstrip()) for l in _jul)  # banner width
-        _c = _bw // 2  # center column
-        for _l in _by:
-            _pad = max(0, _c - len(_l.rstrip()) // 2)
-            mid.append(f"  [dim]{' ' * _pad}{_l}[/]")
+        # ---- 3D branding banner (drop shadow + gradient, centered) ----
+        _bw = max(len(Text.from_markup(l, emoji=False).__str__()) for l in _BANNER_JULKAR)
+        _c = _bw // 2
+        for _l in _BANNER_BY:
+            _w = Text.from_markup(_l, emoji=False).cell_len
+            _pad = max(0, _c - _w // 2)
+            mid.append(f"  {' ' * _pad}{_l}")
         mid.append("")
-        for _l in _jul:
-            _pad = max(0, _c - len(_l.rstrip()) // 2)
-            mid.append(f"  [bold bright_cyan]{' ' * _pad}{_l}[/]")
+        for _l in _BANNER_JULKAR:
+            _w = Text.from_markup(_l, emoji=False).cell_len
+            _pad = max(0, _c - _w // 2)
+            mid.append(f"  {' ' * _pad}{_l}")
 
         # ---------- RIGHT pool: live orderbook spreads ----------
         spreads: list[tuple[str, Decimal, Decimal, float]] = []
