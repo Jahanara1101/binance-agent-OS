@@ -36,6 +36,11 @@ class Agent:
         self.args = args
         self.stats = Stats()
         self.running = True
+        self.exit_requested = bool(getattr(args, "exit_only", False))
+        self._trigger = None
+        if not getattr(args, "standalone_skip_trigger", False):
+            base = Path(str(getattr(args, "log_file", demo_log())))
+            self._trigger = base.parent / "safe-exit.flag"
         # venue: "perp" (USDT-M futures) or "spot"
         self.venue = getattr(args, "venue", "perp")
         if self.venue == "spot":
@@ -203,7 +208,12 @@ class Agent:
 
 
     async def cancel_all(self) -> None:
+        # In safe-exit mode, only cancel entry QUOTEs; keep reduce-only EXIT
+        # orders on the book so inventory can still be hedged out.
+        keep_exits = self.exit_requested
         for order_id, order in list(self.active.items()):
+            if keep_exits and order.reduce_only:
+                continue
             try:
                 if self.args.environment == "paper":
                     self.paper.cancel(order_id)
@@ -276,6 +286,11 @@ class Agent:
             try:
                 while self.running:
                     started = time.monotonic()
+                    # detect safe-exit trigger file -> enter exit-only mode
+                    if not self.exit_requested and self._trigger and self._trigger.exists():
+                        self.exit_requested = True
+                        print("\n[SAFE-EXIT] trigger received — cancelling quotes, "
+                              "hedging inventory via maker, no new entries.", flush=True)
                     _market_map, books = await self.scan()
                     self._books = books
                     if self.feed is None and self.markets:
@@ -319,9 +334,8 @@ class Agent:
                                     )
                     await self.cancel_all()
                     available = max(0, self.args.max_orders - len(self.active))
-                    exit_only = bool(getattr(self.args, "exit_only", False))
-                    if exit_only:
-                        # SAFE-EXIT: cancel all opens (done above), hedge any
+                    if self.exit_requested:
+                        # SAFE-EXIT: cancel entry quotes (done above), hedge any
                         # inventory out via maker, place NO new entries, and
                         # stop once flat.
                         exits = []
@@ -395,6 +409,11 @@ class Agent:
                 self.log.close()
                 if self.feed:
                     self.feed.stop()
+                if self._trigger and self._trigger.exists():
+                    try:
+                        self._trigger.unlink()
+                    except OSError:
+                        pass
 
 
 def parser() -> argparse.ArgumentParser:
@@ -469,26 +488,16 @@ def main() -> None:
         run_live(log, venue=venue)
         return
 
-    # `binance-mm safe-exit` => run the bot in exit-only mode: cancel all open
-    # quotes, hedge any inventory out via maker orders, place no new entries,
-    # and stop once flat. Optional venue: `safe-exit spot` / `safe-exit perp`.
+    # `binance-mm safe-exit` => signal the RUNNING bot (demo or live, spot or
+    # perp) to enter exit-only mode: it cancels entry quotes, hedges inventory
+    # out via maker, places no new entries, and stops once flat. Works for any
+    # venue/mode because the running process does the actual exit with its own
+    # connection (paper broker or Agent OS).
     if argv and argv[0] == "safe-exit":
-        venue = "perp"
-        rest = argv[1:]
-        if rest and rest[0] in ("spot", "perp"):
-            venue = rest[0]
-            rest = rest[1:]
-        sys.argv = [sys.argv[0]] + rest + ["--exit-only"]
-        args = parser().parse_args()
-        args.venue = venue
-        args.environment = "paper"
-        if args.min_volume is None:
-            args.min_volume = Decimal(1000000) if venue == "spot" else Decimal(10000000)
-        args.log_file = str(demo_log() if venue == "perp"
-                            else Path(str(demo_log()).replace("demo.jsonl", "demo-spot.jsonl")))
-        print(f"[SAFE-EXIT] {venue.upper()} — cancelling opens, hedging inventory via maker, no new entries.",
-              flush=True)
-        _run_bot(args)
+        flag = demo_log().parent / "safe-exit.flag"
+        flag.touch()
+        print(f"[SAFE-EXIT] trigger sent to running bot(s): {flag}", flush=True)
+        print("The bot will cancel quotes, hedge inventory via maker, place no new entries, and stop when flat.", flush=True)
         return
 
     # `binance-mm demo` (bare) is intentionally NOT a shortcut anymore.
