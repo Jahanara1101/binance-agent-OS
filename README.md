@@ -59,12 +59,13 @@ client at all.
 | Binance Agent OS OAuth execution | Yes | Yes |
 | USDT default | Yes | Yes |
 | Optional USDC markets | Yes | Yes |
-| Portfolio allocation per leg | 2% | 2% |
+| Portfolio allocation per leg | 2% | 5% |
+| Max open orders | 30 | 10 |
 | Leverage | 5x | Not applicable |
 | Normal mode | Yes | Yes |
 
 Spot and Perp limits are independent because the balances are separate. Running
-both can therefore allow up to 30 open Perp orders plus 30 open Spot orders.
+both can therefore allow up to 30 open Perp orders plus 10 open Spot orders.
 
 Alpha Trading is intentionally excluded because the current Binance Agent OS MCP
 tool catalog does not expose authenticated Alpha order and cancellation tools.
