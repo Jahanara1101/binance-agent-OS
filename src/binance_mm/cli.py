@@ -14,7 +14,7 @@ from rich.text import Text
 
 from .binance import BinanceClient, parse_markets
 from .models import Book, Order, Side
-from .paper import PaperBroker
+from .paper import PaperBroker, PaperFill
 from .paths import demo_log, live_log
 from .state import Fill, InventoryBook
 from .strategy import select_markets, size_quotes
@@ -38,10 +38,12 @@ class Agent:
         self.stats = Stats()
         self.running = True
         self.exit_requested = bool(getattr(args, "exit_only", False))
+        self.force_exit_requested = False
         self._trigger = None
         if not getattr(args, "standalone_skip_trigger", False):
             base = Path(str(getattr(args, "log_file", demo_log())))
             self._trigger = base.parent / "safe-exit.flag"
+            self._force_trigger = base.parent / "force-exit.flag"
         # venue: "perp" (USDT-M futures) or "spot"
         self.venue = getattr(args, "venue", "perp")
         if self.venue == "spot":
@@ -272,11 +274,38 @@ class Agent:
             finally:
                 self.active.pop(order_id, None)
 
-    async def place_orders(self, orders: list[Order]) -> None:
+    def _apply_fill(self, fill: PaperFill) -> None:
+        """Apply a paper fill to cash (spot) and the inventory ledger."""
+        self.stats.fills += 1
+        self.stats.fill_events.append(
+            f"{fill.symbol} {fill.side.value} {fill.quantity}@{fill.price} #{fill.order_id}"
+        )
+        self.log.event("FILL", venue=self.venue, symbol=fill.symbol,
+                       side=fill.side.value, price=str(fill.price),
+                       qty=str(fill.quantity), order_id=str(fill.order_id))
+        self.active.pop(fill.order_id, None)
+        if self.venue == "spot":
+            delta = fill.quantity * fill.price * (1 if fill.side is Side.SELL else -1)
+            self.cash += delta
+        self.inventory.apply_fill(
+            Fill(fill.order_id, fill.symbol, fill.side, fill.quantity, fill.price)
+        )
+
+    async def place_orders(self, orders: list[Order], market: bool = False) -> None:
         for order in orders:
             try:
                 if self.args.environment == "paper":
                     order_id = self.paper.place(order)
+                    # market orders fill immediately at the current book price
+                    if market:
+                        book = self._books.get(order.symbol)
+                        if book:
+                            fill_price = book.ask if order.side is Side.SELL else book.bid
+                            fill = PaperFill(order.symbol, order.side, fill_price,
+                                             order.quantity, order_id)
+                            self.paper.fills.append(fill)
+                            self.paper.orders.pop(order_id, None)
+                            self._apply_fill(fill)
                 else:
                     raise RuntimeError("Authenticated orders must run through the Binance Agent OS plugin")
                 self.active[order_id] = order
@@ -332,6 +361,12 @@ class Agent:
                         self.exit_requested = True
                         print("\n[SAFE-EXIT] trigger received — cancelling quotes, "
                               "hedging inventory via maker, no new entries.", flush=True)
+                    # detect force-exit trigger -> market-order hedge immediately
+                    if not self.force_exit_requested and self._force_trigger and self._force_trigger.exists():
+                        self.force_exit_requested = True
+                        self.exit_requested = True
+                        print("\n[FORCE-EXIT] trigger received — market-order hedge of "
+                              "all inventory, cancelling quotes, no new entries.", flush=True)
                     _market_map, books = await self.scan()
                     self._books = books
                     if self.feed is None and self.markets:
@@ -398,7 +433,7 @@ class Agent:
                                 if market.symbol in books
                                 and (exit_order := self.inventory.exit_order(market, books[market.symbol])) is not None
                             ]
-                        await self.place_orders(exits[:available])
+                        await self.place_orders(exits[:available], market=self.force_exit_requested)
                         if not exits and not self.active:
                             # flat and nothing open -> exit is complete
                             print("\n[SAFE-EXIT] positions flat, all orders closed. Done.", flush=True)
@@ -453,6 +488,11 @@ class Agent:
                 if self._trigger and self._trigger.exists():
                     try:
                         self._trigger.unlink()
+                    except OSError:
+                        pass
+                if hasattr(self, "_force_trigger") and self._force_trigger and self._force_trigger.exists():
+                    try:
+                        self._force_trigger.unlink()
                     except OSError:
                         pass
 
@@ -539,6 +579,16 @@ def main() -> None:
         flag.touch()
         print(f"[SAFE-EXIT] trigger sent to running bot(s): {flag}", flush=True)
         print("The bot will cancel quotes, hedge inventory via maker, place no new entries, and stop when flat.", flush=True)
+        return
+
+    # `binance-mm force-exit` => signal the RUNNING bot to close ALL inventory
+    # with MARKET orders immediately (instant hedge), cancel open quotes, place
+    # no new entries, and stop. Works for demo/live, spot/perp.
+    if argv and argv[0] == "force-exit":
+        flag = demo_log().parent / "force-exit.flag"
+        flag.touch()
+        print(f"[FORCE-EXIT] trigger sent to running bot(s): {flag}", flush=True)
+        print("The bot will MARKET-order hedge all inventory instantly, cancel quotes, place no new entries, and stop.", flush=True)
         return
 
     # `binance-mm demo` (bare) is intentionally NOT a shortcut anymore.

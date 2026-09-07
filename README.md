@@ -21,6 +21,7 @@ official Binance Agent OS OAuth MCP server.
    - `binance-mm live spot` → realtime spot orderbook
    - `binance-mm watch`     → two-venue dashboard (LIVE ⇄ DEMO)
    - `binance-mm safe-exit` → cancel opens, hedge inventory out via maker, no new entries, stop when flat
+   - `binance-mm force-exit` → MARKET-order hedge ALL inventory instantly, cancel quotes, no new entries, stop
 
    (There is no bare `binance-mm demo` — always pick a venue.)
 
@@ -83,6 +84,11 @@ configuration is limited to the two parameters that users most need to tune
 Safe-exit (`binance-mm safe-exit`): cancels all open quotes, hedges any
 inventory out via maker orders on the opposite side, places no new entries, and
 stops once flat. Optional venue: `binance-mm safe-exit spot` | `safe-exit perp`.
+
+Force-exit (`binance-mm force-exit`): cancels all open quotes, then closes ALL
+inventory with **market orders** (instant hedge, no waiting on the maker book),
+places no new entries, and stops. For an immediate close-out regardless of
+spread or liquidity. Works for demo/live, spot/perp.
 
 ## Architecture
 
