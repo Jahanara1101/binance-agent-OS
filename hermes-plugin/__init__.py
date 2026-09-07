@@ -131,8 +131,13 @@ def register(ctx):
             "spot": BinanceSpotMarketDataClient(),
         }
         runners = {
-            "perp": AgentOSRunner(executor, args.refresh, args.max_orders, min_spread=args.min_spread),
-            "spot": SpotRunner(executor, args.refresh, args.max_orders, min_spread=args.min_spread),
+            "perp": AgentOSRunner(executor, args.refresh, args.max_orders,
+                                  margin_fraction=getattr(args, "margin_fraction", Decimal("0.02")),
+                                  leverage=getattr(args, "leverage", 5),
+                                  min_spread=args.min_spread),
+            "spot": SpotRunner(executor, args.refresh, args.max_orders,
+                               allocation=getattr(args, "margin_fraction", Decimal("0.05")),
+                               min_spread=args.min_spread),
         }
         try:
             for cycle_index in range(args.cycles):
