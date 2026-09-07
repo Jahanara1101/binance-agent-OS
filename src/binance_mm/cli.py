@@ -150,12 +150,15 @@ class Agent:
             else:
                 left.append(f"  [dim]{ev}[/]")
 
-        # ---------- MIDDLE pool: open orders + portfolio + stats ----------
+        # ---------- MIDDLE pool: branding + open orders + portfolio + stats ----------
         mid: list[str] = []
+        mid.append(Text("  JULKAR.ETH", style="bold bright_cyan"))
+        mid.append(Text("  By", style="dim bright_cyan"))
+        mid.append(Text(""))
         mid.append("[bold white]▌ OPEN ORDERS[/]")
         mid.append("[dim]  SYMBOL        SIDE  QTY        PRICE       NOTIONAL[/]")
         if self.active:
-            for oid, o in list(self.active.items())[:14]:
+            for oid, o in list(self.active.items()):
                 sst = "bright_green" if o.side.value == "BUY" else "bright_red"
                 nv = float(o.price) * float(o.quantity)
                 # fixed-width fields; pad each so columns never touch
@@ -168,8 +171,6 @@ class Agent:
                     f"  [white]{sym}[/][{sst}]{side}[/]"
                     f"[yellow]{qty}[/][white]{px}[/][magenta]{notl}[/]"
                 )
-            if len(self.active) > 14:
-                mid.append(f"  [dim]… +{len(self.active) - 14} more[/]")
         else:
             mid.append("  [dim](none)[/]")
         mid.append("")
@@ -184,14 +185,6 @@ class Agent:
         mid.append(f"  open      [white]{len(self.active)}[/]")
         mid.append(f"  errors    [red]{self.stats.errors}[/]")
         mid.append("")
-        # ---- branding: simple large text "By JULKAR.ETH" (cyan gradient) ----
-        _banner_h = 3
-        _pad_top = max(0, body_rows - len(mid) - _banner_h - 2)
-        for _ in range(_pad_top):
-            mid.append(Text(""))
-        mid.append(Text("  By", style="dim bright_cyan"))
-        mid.append(Text("  JULKAR.ETH", style="bold bright_cyan"))
-        mid.append(Text(""))
 
         # ---------- RIGHT pool: live orderbook spreads ----------
         spreads: list[tuple[str, Decimal, Decimal, float]] = []
