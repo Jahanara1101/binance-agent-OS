@@ -192,13 +192,13 @@ class Agent:
         spreads.sort(key=lambda x: x[3], reverse=True)
         right: list[str] = []
         right.append("[bold white]▌ LIVE SPREADS[/]")
-        right.append("[dim]  SYMBOL         BID      ASK    SPREAD%[/]")
+        right.append("[dim]  SYMBOL           BID         ASK       SPREAD%[/]")
         if spreads:
             for sym, bid, ask, sp in spreads[: max(1, body_rows - 2)]:
                 scol = "bright_green" if sp < 0.05 else ("yellow" if sp < 0.1 else "bright_red")
                 right.append(
-                    f"  [white]{sym:<13}[/] [dim]{float(bid):>9.6g}[/]"
-                    f"[dim]{float(ask):>9.6g}[/] [{scol}]{sp:>7.4f}%[/]"
+                    f"  [white]{sym:<14}[/] [dim]{float(bid):>10.6g}[/]"
+                    f" [dim]{float(ask):>10.6g}[/] [{scol}]{sp:>8.4f}%[/]"
                 )
         else:
             right.append("  [dim](no book data)[/]")
